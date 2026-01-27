@@ -1,139 +1,162 @@
-# ----- IMPORT LIBRARIES -----
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import ipywidgets as widgets
-from IPython.display import display
-import numpy as np
-
-# ----- CREATE 4x4 MATRIX -----
-size = 4
-distance_df = pd.DataFrame(
-    np.zeros((size, size), dtype=int),
-    columns=[str(i) for i in range(size)],
-    index=[str(i) for i in range(size)]
-)
-
-# ----- HEATMAP FUNCTION -----
-def draw_heatmap():
-    plt.figure(figsize=(6,5))
-    sns.heatmap(
-        distance_df,
-        annot=True,
-        cmap='viridis',
-        fmt='d',
-        linewidths=0.5,
-        cbar=False
-    )
-
-    # 🔹 Tilt row & column labels
-    plt.xticks(rotation=45, ha='left')
-    plt.yticks(rotation=0,)
-
-    plt.title('Even Parity Binary Matrix')
-    plt.tight_layout()
-    plt.show()
-
-# ----- EVEN PARITY FUNCTION -----
-def even_parity(values):
-    """
-    Returns 0 if sum is even, 1 if sum is odd
-    """
-    return sum(values) % 2
-
-# ----- PARITY EXPLANATION FUNCTION -----
-def explain_matrix(df):
-    explanations = []
-    has_error = False
-
-    # Parity rules (your logic)
-    parity_rules = {
-        (1,3): [(1,0),(1,1),(1,2),(3,0),(3,1),(3,2),(3,3)],
-        (2,3): [(2,0),(2,1),(2,2),(3,0),(3,1),(3,2),(3,3)],
-        (0,2): [(1,2),(2,2),(3,2),(0,0),(1,0),(2,0),(3,0)],
-        (0,1): [(1,1),(2,1),(3,1),(0,0),(1,0),(2,0),(3,0)],
-        (0,0): [(i,j) for i in range(4) for j in range(4) if not (i==0 and j==0)]
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Even Parity Binary Matrix</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
     }
 
-    for (r,c), cells in parity_rules.items():
-        values = [df.at[str(i), str(j)] for i,j in cells]
-        expected = even_parity(values)
-        actual = df.at[str(r), str(c)]
+    table {
+        border-collapse: collapse;
+        margin-top: 15px;
+    }
 
-        if actual != expected:
-            has_error = True
-            explanations.append(
-                f"❌ Parity error at ({r},{c}) — expected {expected}, got {actual}"
-            )
-        else:
-            explanations.append(
-                f"✅ Parity correct at ({r},{c}) — value {actual} makes sum even"
-            )
+    td {
+        width: 50px;
+        height: 50px;
+        text-align: center;
+        border: 1px solid #ccc;
+        font-size: 18px;
+        font-weight: bold;
+    }
 
-    if not has_error:
-        explanations.insert(
-            0, "✅ Matrix is TRUE — all even parity conditions are satisfied"
-        )
+    input {
+        width: 45px;
+        text-align: center;
+        font-size: 16px;
+    }
 
-    return explanations
+    button {
+        margin-top: 10px;
+        padding: 8px 16px;
+        font-size: 16px;
+        cursor: pointer;
+    }
 
-# ----- OUTPUT AREAS -----
-heatmap_output = widgets.Output()
-status_output = widgets.Output()
+    .status {
+        margin-top: 15px;
+        white-space: pre-line;
+        font-family: monospace;
+    }
+</style>
+</head>
+<body>
 
-# ----- CREATE GRID OF INPUTS -----
-input_widgets = [[
-    widgets.BoundedIntText(
-        value=0,
-        min=0,
-        max=1,
-        layout=widgets.Layout(width='50px')
-    )
-    for j in range(size)]
-    for i in range(size)
-]
+<h2>Even Parity Binary Matrix</h2>
 
-# ----- SUBMIT BUTTON -----
-submit_button = widgets.Button(
-    description="Submit Matrix",
-    button_style='success'
-)
+<!-- INPUT GRID -->
+<table id="inputGrid"></table>
 
-# ----- BUTTON CLICK HANDLER -----
-def on_submit_clicked(b):
-    # Update DataFrame from widgets
-    for i in range(size):
-        for j in range(size):
-            distance_df.at[str(i), str(j)] = input_widgets[i][j].value
+<button onclick="submitMatrix()">Submit Matrix</button>
 
-    # Update heatmap
-    with heatmap_output:
-        heatmap_output.clear_output()
-        draw_heatmap()
+<!-- HEATMAP -->
+<h3>Heatmap</h3>
+<table id="heatmap"></table>
 
-    # Show explanations
-    with status_output:
-        status_output.clear_output()
-        for line in explain_matrix(distance_df):
-            print(line)
+<!-- STATUS -->
+<div class="status" id="status"></div>
 
-submit_button.on_click(on_submit_clicked)
+<script>
+const size = 4;
 
-# ----- DISPLAY GRID AND OUTPUT -----
-grid_box = widgets.GridBox(
-    [w for row in input_widgets for w in row],
-    layout=widgets.Layout(
-        grid_template_columns=('50px ' * size).strip(),
-        grid_gap='5px'
-    )
-)
+// Create empty matrix
+let matrix = Array.from({ length: size }, () => Array(size).fill(0));
 
-display(grid_box, submit_button, heatmap_output, status_output)
+// Build input grid
+const inputGrid = document.getElementById("inputGrid");
 
-# ----- INITIAL DISPLAY -----
-with heatmap_output:
-    draw_heatmap()
+for (let i = 0; i < size; i++) {
+    const row = document.createElement("tr");
+    for (let j = 0; j < size; j++) {
+        const cell = document.createElement("td");
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = 0;
+        input.max = 1;
+        input.value = 0;
+        input.onchange = () => matrix[i][j] = Number(input.value);
+        cell.appendChild(input);
+        row.appendChild(cell);
+    }
+    inputGrid.appendChild(row);
+}
 
-with status_output:
-    for line in explain_matrix(distance_df):
-        print(line)
+// Even parity function
+function evenParity(values) {
+    return values.reduce((a,b) => a + b, 0) % 2;
+}
+
+// Draw heatmap
+function drawHeatmap() {
+    const heatmap = document.getElementById("heatmap");
+    heatmap.innerHTML = "";
+
+    for (let i = 0; i < size; i++) {
+        const row = document.createElement("tr");
+        for (let j = 0; j < size; j++) {
+            const cell = document.createElement("td");
+            const value = matrix[i][j];
+
+            // Simple viridis-like coloring
+            cell.style.backgroundColor = value === 0 ? "#440154" : "#FDE725";
+            cell.style.color = value === 0 ? "white" : "black";
+            cell.textContent = value;
+
+            row.appendChild(cell);
+        }
+        heatmap.appendChild(row);
+    }
+}
+
+// Explain parity rules
+function explainMatrix() {
+    let output = [];
+    let hasError = false;
+
+    const parityRules = {
+        "1,3": [[1,0],[1,1],[1,2],[3,0],[3,1],[3,2],[3,3]],
+        "2,3": [[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3]],
+        "0,2": [[1,2],[2,2],[3,2],[0,0],[1,0],[2,0],[3,0]],
+        "0,1": [[1,1],[2,1],[3,1],[0,0],[1,0],[2,0],[3,0]],
+        "0,0": Array.from({length:16}, (_,k) => [Math.floor(k/4), k%4])
+                .filter(([i,j]) => !(i === 0 && j === 0))
+    };
+
+    for (const key in parityRules) {
+        const [r,c] = key.split(",").map(Number);
+        const cells = parityRules[key];
+        const values = cells.map(([i,j]) => matrix[i][j]);
+        const expected = evenParity(values);
+        const actual = matrix[r][c];
+
+        if (actual !== expected) {
+            hasError = true;
+            output.push(`❌ Parity error at (${r},${c}) — expected ${expected}, got ${actual}`);
+        } else {
+            output.push(`✅ Parity correct at (${r},${c}) — value ${actual} makes sum even`);
+        }
+    }
+
+    if (!hasError) {
+        output.unshift("✅ Matrix is TRUE — all even parity conditions are satisfied");
+    }
+
+    return output.join("\n");
+}
+
+// Submit button handler
+function submitMatrix() {
+    drawHeatmap();
+    document.getElementById("status").textContent = explainMatrix();
+}
+
+// Initial display
+drawHeatmap();
+document.getElementById("status").textContent = explainMatrix();
+</script>
+
+</body>
+</html>
