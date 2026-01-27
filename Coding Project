@@ -2,160 +2,178 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Even Parity Binary Matrix</title>
+<title>Flappy Bird</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
     body {
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: linear-gradient(#70c5ce, #ffffff);
         font-family: Arial, sans-serif;
-        padding: 20px;
     }
 
-    table {
-        border-collapse: collapse;
-        margin-top: 15px;
+    canvas {
+        border: 2px solid #000;
+        background: #70c5ce;
     }
 
-    td {
-        width: 50px;
-        height: 50px;
-        text-align: center;
-        border: 1px solid #ccc;
-        font-size: 18px;
-        font-weight: bold;
-    }
-
-    input {
-        width: 45px;
-        text-align: center;
-        font-size: 16px;
-    }
-
-    button {
-        margin-top: 10px;
-        padding: 8px 16px;
-        font-size: 16px;
-        cursor: pointer;
-    }
-
-    .status {
-        margin-top: 15px;
-        white-space: pre-line;
-        font-family: monospace;
+    .hint {
+        position: absolute;
+        top: 10px;
+        font-size: 14px;
+        color: #000;
     }
 </style>
 </head>
 <body>
 
-<h2>Even Parity Binary Matrix</h2>
-
-<!-- INPUT GRID -->
-<table id="inputGrid"></table>
-
-<button onclick="submitMatrix()">Submit Matrix</button>
-
-<!-- HEATMAP -->
-<h3>Heatmap</h3>
-<table id="heatmap"></table>
-
-<!-- STATUS -->
-<div class="status" id="status"></div>
+<div class="hint">Click or Press Space to Jump</div>
+<canvas id="game" width="400" height="600"></canvas>
 
 <script>
-const size = 4;
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-// Create empty matrix
-let matrix = Array.from({ length: size }, () => Array(size).fill(0));
+// Game constants
+const gravity = 0.5;
+const jump = -8;
+const pipeWidth = 60;
+const gap = 150;
 
-// Build input grid
-const inputGrid = document.getElementById("inputGrid");
+// Bird
+let bird = {
+    x: 80,
+    y: 300,
+    radius: 12,
+    velocity: 0
+};
 
-for (let i = 0; i < size; i++) {
-    const row = document.createElement("tr");
-    for (let j = 0; j < size; j++) {
-        const cell = document.createElement("td");
-        const input = document.createElement("input");
-        input.type = "number";
-        input.min = 0;
-        input.max = 1;
-        input.value = 0;
-        input.onchange = () => matrix[i][j] = Number(input.value);
-        cell.appendChild(input);
-        row.appendChild(cell);
+// Pipes
+let pipes = [];
+let frame = 0;
+let score = 0;
+let gameOver = false;
+
+// Controls
+document.addEventListener("keydown", e => {
+    if (e.code === "Space") flap();
+});
+canvas.addEventListener("click", flap);
+
+function flap() {
+    if (gameOver) {
+        resetGame();
+    } else {
+        bird.velocity = jump;
     }
-    inputGrid.appendChild(row);
 }
 
-// Even parity function
-function evenParity(values) {
-    return values.reduce((a,b) => a + b, 0) % 2;
+// Reset
+function resetGame() {
+    bird.y = 300;
+    bird.velocity = 0;
+    pipes = [];
+    score = 0;
+    frame = 0;
+    gameOver = false;
 }
 
-// Draw heatmap
-function drawHeatmap() {
-    const heatmap = document.getElementById("heatmap");
-    heatmap.innerHTML = "";
+// Create pipe
+function createPipe() {
+    const topHeight = Math.random() * 250 + 50;
+    pipes.push({
+        x: canvas.width,
+        top: topHeight,
+        bottom: topHeight + gap,
+        passed: false
+    });
+}
 
-    for (let i = 0; i < size; i++) {
-        const row = document.createElement("tr");
-        for (let j = 0; j < size; j++) {
-            const cell = document.createElement("td");
-            const value = matrix[i][j];
+// Update
+function update() {
+    if (gameOver) return;
 
-            // Simple viridis-like coloring
-            cell.style.backgroundColor = value === 0 ? "#440154" : "#FDE725";
-            cell.style.color = value === 0 ? "white" : "black";
-            cell.textContent = value;
+    frame++;
+    bird.velocity += gravity;
+    bird.y += bird.velocity;
 
-            row.appendChild(cell);
+    // Ground / ceiling
+    if (bird.y + bird.radius > canvas.height || bird.y - bird.radius < 0) {
+        gameOver = true;
+    }
+
+    // Pipes
+    if (frame % 90 === 0) createPipe();
+
+    pipes.forEach(pipe => {
+        pipe.x -= 2;
+
+        // Collision
+        if (
+            bird.x + bird.radius > pipe.x &&
+            bird.x - bird.radius < pipe.x + pipeWidth &&
+            (bird.y - bird.radius < pipe.top ||
+             bird.y + bird.radius > pipe.bottom)
+        ) {
+            gameOver = true;
         }
-        heatmap.appendChild(row);
-    }
-}
 
-// Explain parity rules
-function explainMatrix() {
-    let output = [];
-    let hasError = false;
-
-    const parityRules = {
-        "1,3": [[1,0],[1,1],[1,2],[3,0],[3,1],[3,2],[3,3]],
-        "2,3": [[2,0],[2,1],[2,2],[3,0],[3,1],[3,2],[3,3]],
-        "0,2": [[1,2],[2,2],[3,2],[0,0],[1,0],[2,0],[3,0]],
-        "0,1": [[1,1],[2,1],[3,1],[0,0],[1,0],[2,0],[3,0]],
-        "0,0": Array.from({length:16}, (_,k) => [Math.floor(k/4), k%4])
-                .filter(([i,j]) => !(i === 0 && j === 0))
-    };
-
-    for (const key in parityRules) {
-        const [r,c] = key.split(",").map(Number);
-        const cells = parityRules[key];
-        const values = cells.map(([i,j]) => matrix[i][j]);
-        const expected = evenParity(values);
-        const actual = matrix[r][c];
-
-        if (actual !== expected) {
-            hasError = true;
-            output.push(`❌ Parity error at (${r},${c}) — expected ${expected}, got ${actual}`);
-        } else {
-            output.push(`✅ Parity correct at (${r},${c}) — value ${actual} makes sum even`);
+        // Score
+        if (!pipe.passed && pipe.x + pipeWidth < bird.x) {
+            score++;
+            pipe.passed = true;
         }
-    }
+    });
 
-    if (!hasError) {
-        output.unshift("✅ Matrix is TRUE — all even parity conditions are satisfied");
-    }
-
-    return output.join("\n");
+    pipes = pipes.filter(p => p.x + pipeWidth > 0);
 }
 
-// Submit button handler
-function submitMatrix() {
-    drawHeatmap();
-    document.getElementById("status").textContent = explainMatrix();
+// Draw
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Bird
+    ctx.fillStyle = "yellow";
+    ctx.beginPath();
+    ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pipes
+    ctx.fillStyle = "green";
+    pipes.forEach(pipe => {
+        ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+        ctx.fillRect(pipe.x, pipe.bottom, pipeWidth, canvas.height);
+    });
+
+    // Score
+    ctx.fillStyle = "#000";
+    ctx.font = "32px Arial";
+    ctx.fillText(score, canvas.width / 2 - 10, 50);
+
+    // Game over
+    if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "28px Arial";
+        ctx.fillText("Game Over", 120, 260);
+        ctx.font = "18px Arial";
+        ctx.fillText("Click or Space to Restart", 95, 300);
+    }
 }
 
-// Initial display
-drawHeatmap();
-document.getElementById("status").textContent = explainMatrix();
+// Loop
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+loop();
 </script>
 
 </body>
