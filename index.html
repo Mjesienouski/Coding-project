@@ -3,366 +3,271 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>AI Runner Tracker</title>
+  <title>Live Pose Tracker</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #f4f4f4; color: #222; padding: 1.5rem; }
-    h1 { font-size: 22px; font-weight: 500; margin-bottom: 1.25rem; }
-    .card { background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
-    label { font-size: 13px; color: #666; display: block; margin-bottom: 4px; margin-top: 12px; }
-    input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-family: sans-serif; }
-    textarea { resize: vertical; min-height: 80px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .clock { font-size: 40px; font-weight: 500; font-family: monospace; text-align: center; padding: 0.75rem 0 0.25rem; }
-    .sub { text-align: center; font-size: 13px; color: #888; margin-bottom: 1rem; }
-    .btn-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-    button { padding: 9px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
+    body { background: #0a0a0a; color: #eee; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; }
+    h1 { font-size: 18px; font-weight: 500; color: #aaa; margin-bottom: 1rem; letter-spacing: 1px; text-transform: uppercase; }
+    .canvas-wrap { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid #222; }
+    #videoEl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
+    #poseCanvas { display: block; }
+    .controls { display: flex; align-items: center; gap: 16px; margin-top: 1rem; flex-wrap: wrap; justify-content: center; }
+    button { padding: 9px 22px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; }
     .btn-green { background: #1D9E75; color: #fff; }
-    .btn-red   { background: #E24B4A; color: #fff; }
-    .btn-blue  { background: #378ADD; color: #fff; }
-    .btn-gray  { background: #eee; color: #333; }
-    button:disabled { opacity: 0.4; cursor: default; }
-    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 1rem; }
-    .metric { background: #f7f7f5; border-radius: 8px; padding: 0.85rem; }
-    .metric-val { font-size: 20px; font-weight: 500; font-family: monospace; }
-    .metric-lbl { font-size: 11px; color: #888; margin-top: 2px; }
-    video { width: 100%; border-radius: 8px; background: #000; max-height: 300px; object-fit: cover; }
-    .ai-bubble { background: #EAF3DE; border-radius: 10px; padding: 0.85rem 1rem; font-size: 14px; color: #1a3d0e; line-height: 1.6; margin-bottom: 8px; }
-    .ai-bubble.thinking { background: #f0f0f0; color: #888; font-style: italic; }
-    .split-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
-    .split-row:last-child { border-bottom: none; }
-    .split-num { font-family: monospace; font-weight: 500; }
-    .badge-split { background: #E6F1FB; color: #0C447C; font-size: 11px; padding: 2px 8px; border-radius: 99px; }
-    #videoContainer { display: none; }
-    #aiSection { display: none; }
-    #splitsSection { display: none; }
-    .section-title { font-size: 14px; font-weight: 500; margin-bottom: 12px; }
-    .predict-box { background: #EEEDFE; border-radius: 8px; padding: 0.85rem; margin-top: 8px; }
-    .predict-val { font-size: 20px; font-weight: 500; color: #3C3489; font-family: monospace; }
-    .predict-lbl { font-size: 12px; color: #534AB7; margin-top: 2px; }
-    @media (max-width: 600px) {
-      .metrics { grid-template-columns: 1fr 1fr; }
-    }
+    .btn-gray  { background: #222; color: #aaa; border: 1px solid #333; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    .slider-wrap { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #666; }
+    input[type=range] { width: 100px; accent-color: #1D9E75; }
+    .status { font-size: 12px; color: #555; margin-top: 8px; letter-spacing: 0.5px; }
+    .status span { color: #1D9E75; }
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+    .leg-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #666; }
+    .leg-dot { width: 9px; height: 9px; border-radius: 50%; }
   </style>
 </head>
 <body>
 
-<h1>AI Runner Tracker</h1>
+<h1>Live Pose Tracker</h1>
 
-<div class="card">
-  <div class="row">
-    <div>
-      <label>Runner name</label>
-      <input id="runnerName" type="text" placeholder="e.g. Alex Johnson" />
-    </div>
-    <div>
-      <label>Target distance</label>
-      <div style="display:flex; gap:6px;">
-        <input id="distVal" type="number" placeholder="5" min="0" step="any" style="flex:1;" />
-        <select id="distUnit" style="width:100px;">
-          <option value="km">km</option>
-          <option value="miles">miles</option>
-          <option value="m">meters</option>
-          <option value="yards">yards</option>
-        </select>
-      </div>
-    </div>
-  </div>
-  <div class="row" style="margin-top:12px;">
-    <div>
-      <label>Split every (optional)</label>
-      <div style="display:flex; gap:6px; align-items:center;">
-        <input id="splitEvery" type="number" placeholder="1" min="0.1" step="any" style="flex:1;" />
-        <span style="font-size:13px; color:#888; white-space:nowrap;">units</span>
-      </div>
-    </div>
-    <div>
-      <label>Anthropic API key</label>
-      <input id="apiKey" type="password" placeholder="sk-ant-..." />
-    </div>
-  </div>
-</div>
-
-<div class="card" id="videoContainer">
-  <p class="section-title">Live camera feed</p>
+<div class="canvas-wrap" id="canvasWrap">
   <video id="videoEl" autoplay muted playsinline></video>
-  <canvas id="snapCanvas" style="display:none;"></canvas>
+  <canvas id="poseCanvas"></canvas>
 </div>
 
-<div class="card">
-  <div class="clock" id="clock">00:00:00</div>
-  <div class="sub">elapsed time</div>
-  <div class="btn-row">
-    <button class="btn-blue"  id="btnCamera" onclick="startCamera()">Enable camera</button>
-    <button class="btn-green" id="btnStart"  onclick="startRun()"   disabled>Start run</button>
-    <button class="btn-red"   id="btnStop"   onclick="stopRun()"    disabled>Stop</button>
-    <button class="btn-gray"  id="btnReset"  onclick="resetAll()">Reset</button>
-    <button class="btn-blue"  id="btnSnap"   onclick="analyzeNow()" disabled>Analyze now</button>
+<div class="controls">
+  <button class="btn-green" id="btnStart">Start camera</button>
+  <button class="btn-gray"  id="btnToggle" disabled>Hide skeleton</button>
+  <button class="btn-gray"  id="btnMirror" disabled>Mirror</button>
+  <div class="slider-wrap">
+    Confidence
+    <input type="range" id="confSlider" min="0.1" max="0.9" step="0.05" value="0.3" />
+    <span id="confOut">0.3</span>
   </div>
 </div>
 
-<div class="metrics">
-  <div class="metric"><div class="metric-val" id="metPace">--:--</div><div class="metric-lbl">pace (min/unit)</div></div>
-  <div class="metric"><div class="metric-val" id="metSpeed">--</div><div class="metric-lbl">speed (km/h)</div></div>
-  <div class="metric"><div class="metric-val" id="metSplits">0</div><div class="metric-lbl">splits recorded</div></div>
-  <div class="metric"><div class="metric-val" id="metAnalyses">0</div><div class="metric-lbl">AI analyses</div></div>
+<div class="status" id="statusLine">Waiting to start...</div>
+
+<div class="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#FF6B6B;"></div>Head</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FFD93D;"></div>Shoulders</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#6BCB77;"></div>Arms</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#4D96FF;"></div>Hips</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FF922B;"></div>Knees</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#CC5DE8;"></div>Ankles</div>
 </div>
 
-<div class="card" id="aiSection">
-  <p class="section-title">AI coaching feed</p>
-  <div id="aiFeed"></div>
-  <div class="predict-box" id="predictBox" style="display:none;">
-    <div class="predict-val" id="predictVal">--:--:--</div>
-    <div class="predict-lbl">predicted finish time</div>
-  </div>
-</div>
-
-<div class="card" id="splitsSection">
-  <p class="section-title">Split times</p>
-  <div id="splitsList"></div>
-</div>
-
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
 <script>
-  const ANALYZE_INTERVAL_MS = 20000;
+  // Move all functions and variables into global scope correctly
+  let detector   = null;
+  let rafId      = null;
+  let confVal    = 0.3;
+  let showSkel   = true;
+  let mirrored   = false;
 
-  let timerInterval   = null;
-  let analyzeInterval = null;
-  let startTime       = null;
-  let elapsed         = 0;
-  let analysisCount   = 0;
-  let splitCount      = 0;
-  let lastSplitTime   = 0;
-  let stream          = null;
-  let running         = false;
+  const COLORS = {
+    nose:'#FF6B6B', left_eye:'#FF6B6B', right_eye:'#FF6B6B',
+    left_ear:'#FF6B6B', right_ear:'#FF6B6B',
+    left_shoulder:'#FFD93D', right_shoulder:'#FFD93D',
+    left_elbow:'#6BCB77',   right_elbow:'#6BCB77',
+    left_wrist:'#6BCB77',   right_wrist:'#6BCB77',
+    left_hip:'#4D96FF',     right_hip:'#4D96FF',
+    left_knee:'#FF922B',    right_knee:'#FF922B',
+    left_ankle:'#CC5DE8',   right_ankle:'#CC5DE8'
+  };
 
-  function fmt(ms) {
-    const s   = Math.floor(ms / 1000);
-    const h   = Math.floor(s / 3600);
-    const m   = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    return [h, m, sec].map(v => String(v).padStart(2, '0')).join(':');
+  const PAIRS = [
+    ['nose','left_eye'],['nose','right_eye'],
+    ['left_eye','left_ear'],['right_eye','right_ear'],
+    ['left_shoulder','right_shoulder'],
+    ['left_shoulder','left_elbow'],['right_shoulder','right_elbow'],
+    ['left_elbow','left_wrist'],['right_elbow','right_wrist'],
+    ['left_shoulder','left_hip'],['right_shoulder','right_hip'],
+    ['left_hip','right_hip'],
+    ['left_hip','left_knee'],['right_hip','right_knee'],
+    ['left_knee','left_ankle'],['right_knee','right_ankle']
+  ];
+
+  const LABEL_NAMES = {
+    nose:'nose', left_eye:'l.eye', right_eye:'r.eye',
+    left_ear:'l.ear', right_ear:'r.ear',
+    left_shoulder:'l.shoulder', right_shoulder:'r.shoulder',
+    left_elbow:'l.elbow', right_elbow:'r.elbow',
+    left_wrist:'l.wrist', right_wrist:'r.wrist',
+    left_hip:'l.hip', right_hip:'r.hip',
+    left_knee:'l.knee', right_knee:'r.knee',
+    left_ankle:'l.ankle', right_ankle:'r.ankle'
+  };
+
+  function setStatus(msg) {
+    document.getElementById('statusLine').innerHTML = msg;
   }
 
-  function fmtPace(ms, dist) {
-    if (!dist || dist <= 0 || ms <= 0) return '--:--';
-    const paceMin = (ms / 60000) / dist;
-    const pm = Math.floor(paceMin);
-    const ps = Math.round((paceMin - pm) * 60);
-    return `${String(pm).padStart(2,'0')}:${String(ps).padStart(2,'0')}`;
+  function toggleSkeleton() {
+    showSkel = !showSkel;
+    document.getElementById('btnToggle').textContent = showSkel ? 'Hide skeleton' : 'Show skeleton';
   }
 
-  function fmtSpeed(ms, dist, unit) {
-    if (!dist || dist <= 0 || ms <= 0) return '--';
-    let distKm = unit === 'miles' ? dist * 1.60934
-               : unit === 'm'     ? dist / 1000
-               : unit === 'yards' ? dist * 0.0009144
-               : dist;
-    return (distKm / (ms / 3600000)).toFixed(1);
+  function toggleMirror() {
+    mirrored = !mirrored;
+    document.getElementById('btnMirror').textContent = mirrored ? 'Unmirror' : 'Mirror';
   }
 
-  function predictFinish(ms, dist, totalDist) {
-    if (!dist || dist <= 0 || ms <= 0 || totalDist <= 0) return null;
-    const msPerUnit   = ms / dist;
-    const remaining   = totalDist - dist;
-    const predictedMs = ms + (remaining * msPerUnit);
-    return fmt(predictedMs);
-  }
+  async function init() {
+    const btnStart = document.getElementById('btnStart');
+    btnStart.disabled = true;
+    setStatus('Accessing camera...');
 
-  function updateMetrics() {
-    const dist  = parseFloat(document.getElementById('distVal').value);
-    const unit  = document.getElementById('distUnit').value;
-    document.getElementById('metPace').textContent  = fmtPace(elapsed, dist);
-    document.getElementById('metSpeed').textContent = fmtSpeed(elapsed, dist, unit);
-
-    const splitEvery = parseFloat(document.getElementById('splitEvery').value);
-    if (splitEvery > 0 && dist > 0) {
-      const expectedSplits = Math.floor(dist / splitEvery);
-      if (expectedSplits > splitCount) {
-        recordSplit(expectedSplits);
-      }
-    }
-  }
-
-  function recordSplit(num) {
-    splitCount      = num;
-    const splitTime = elapsed - lastSplitTime;
-    lastSplitTime   = elapsed;
-    document.getElementById('metSplits').textContent        = splitCount;
-    document.getElementById('splitsSection').style.display  = 'block';
-    const unit       = document.getElementById('distUnit').value;
-    const splitEvery = parseFloat(document.getElementById('splitEvery').value) || 1;
-    const div        = document.getElementById('splitsList');
-    const row        = document.createElement('div');
-    row.className    = 'split-row';
-    row.innerHTML    = `
-      <span><span class="badge-split">Split ${splitCount}</span> &nbsp; ${(splitCount * splitEvery).toFixed(1)} ${unit}</span>
-      <span class="split-num">${fmt(elapsed)}</span>
-      <span style="color:#888; font-size:12px;">+${fmt(splitTime)}</span>
-    `;
-    div.appendChild(row);
-  }
-
-  async function startCamera() {
+    let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      document.getElementById('videoEl').srcObject     = stream;
-      document.getElementById('videoContainer').style.display = 'block';
-      document.getElementById('btnCamera').disabled    = true;
-      document.getElementById('btnStart').disabled     = false;
-    } catch (e) {
-      alert('Camera access denied or unavailable: ' + e.message);
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false
+      });
+    } catch(e) {
+      setStatus('Camera error: ' + e.message);
+      btnStart.disabled = false;
+      return;
     }
+
+    const video  = document.getElementById('videoEl');
+    const canvas = document.getElementById('poseCanvas');
+    const wrap   = document.getElementById('canvasWrap');
+
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    await video.play();
+
+    const W = video.videoWidth;
+    const H = video.videoHeight;
+    canvas.width  = W;
+    canvas.height = H;
+
+    const maxW = Math.min(window.innerWidth - 32, 900);
+    const scale = maxW / W;
+    wrap.style.width  = Math.round(W * scale) + 'px';
+    wrap.style.height = Math.round(H * scale) + 'px';
+
+    setStatus('Loading MoveNet model...');
+    await tf.ready();
+    detector = await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER }
+    );
+
+    setStatus('<span>Model ready — tracking live</span>');
+    document.getElementById('btnToggle').disabled = false;
+    document.getElementById('btnMirror').disabled = false;
+
+    loop(video, canvas);
   }
 
-  function captureFrame() {
-    const video   = document.getElementById('videoEl');
-    const canvas  = document.getElementById('snapCanvas');
-    canvas.width  = video.videoWidth  || 640;
-    canvas.height = video.videoHeight || 480;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-  }
+  async function loop(video, canvas) {
+    const ctx = canvas.getContext('2d');
+    const W   = canvas.width;
+    const H   = canvas.height;
 
-  function addAIBubble(text, thinking = false) {
-    document.getElementById('aiSection').style.display = 'block';
-    const feed = document.getElementById('aiFeed');
-    const div  = document.createElement('div');
-    div.className   = thinking ? 'ai-bubble thinking' : 'ai-bubble';
-    div.textContent = text;
-    feed.insertBefore(div, feed.firstChild);
-    return div;
-  }
+    ctx.save();
+    if (mirrored) {
+      ctx.translate(W, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0, W, H);
+    ctx.restore();
 
-  async function analyzeFrame() {
-    const apiKey = document.getElementById('apiKey').value.trim();
-    if (!apiKey) return;
+    let poses = [];
+    try { 
+      poses = await detector.estimatePoses(video); 
+    } catch(e) {
+      // Quietly handle errors in prediction loop
+    }
 
-    const imageData  = captureFrame();
-    const dist       = parseFloat(document.getElementById('distVal').value);
-    const unit       = document.getElementById('distUnit').value;
-    const totalDist  = dist || 0;
-    const name       = document.getElementById('runnerName').value.trim() || 'the runner';
-    const elapsedStr = fmt(elapsed);
-    const pace       = fmtPace(elapsed, dist);
-    const speed      = fmtSpeed(elapsed, dist, unit);
-    const predicted  = predictFinish(elapsed, dist, totalDist);
+    if (poses.length > 0) {
+      const pose  = poses[0];
+      const kpMap = {};
+      let detected = 0;
 
-    const prompt = `You are an AI running coach analyzing a live camera frame of a runner.
-
-Runner: ${name}
-Elapsed time: ${elapsedStr}
-Distance set: ${totalDist} ${unit}
-Current pace: ${pace} min/${unit}
-Current speed: ${speed} km/h
-Splits recorded: ${splitCount}
-Analysis #: ${analysisCount + 1}
-
-Look at the image and provide:
-1. A brief observation about the runner's form, posture, or movement visible in the frame (2 sentences max).
-2. One specific actionable coaching tip based on what you see.
-3. A motivational comment about their time/pace so far.
-
-Keep your response under 80 words, conversational and encouraging. If the image is unclear or shows no runner, note that and give general pacing advice instead.`;
-
-    const thinkingBubble = addAIBubble('Analyzing your run...', true);
-
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageData } },
-              { type: 'text', text: prompt }
-            ]
-          }]
-        })
+      pose.keypoints.forEach(kp => {
+        kpMap[kp.name] = kp;
+        if (kp.score >= confVal) detected++;
       });
 
-      const data = await response.json();
-      const text = data.content?.map(b => b.text || '').join('') || 'Could not get a response.';
-      thinkingBubble.className   = 'ai-bubble';
-      thinkingBubble.textContent = `[${elapsedStr}] ${text}`;
-      analysisCount++;
-      document.getElementById('metAnalyses').textContent = analysisCount;
+      if (showSkel) {
+        PAIRS.forEach(([a, b]) => {
+          const ka = kpMap[a], kb = kpMap[b];
+          if (!ka || !kb || ka.score < confVal || kb.score < confVal) return;
 
-      if (predicted) {
-        document.getElementById('predictBox').style.display = 'block';
-        document.getElementById('predictVal').textContent   = predicted;
+          let ax = ka.x, bx = kb.x;
+          if (mirrored) { ax = W - ax; bx = W - bx; }
+
+          const grad = ctx.createLinearGradient(ax, ka.y, bx, kb.y);
+          grad.addColorStop(0, COLORS[a] + 'cc');
+          grad.addColorStop(1, COLORS[b] + 'cc');
+
+          ctx.beginPath();
+          ctx.moveTo(ax, ka.y);
+          ctx.lineTo(bx, kb.y);
+          ctx.strokeStyle = grad;
+          ctx.lineWidth   = 3.5;
+          ctx.stroke();
+        });
       }
 
-    } catch (err) {
-      thinkingBubble.textContent = 'AI analysis failed: ' + err.message;
+      pose.keypoints.forEach(kp => {
+        if (kp.score < confVal) return;
+        const color = COLORS[kp.name] || '#fff';
+        let x = kp.x;
+        if (mirrored) x = W - x;
+
+        const pulse = 6 + Math.sin(Date.now() / 200 + kp.x) * 1.5;
+
+        ctx.beginPath();
+        ctx.arc(x, kp.y, pulse + 4, 0, Math.PI * 2);
+        ctx.fillStyle = color + '33';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(x, kp.y, pulse, 0, Math.PI * 2);
+        ctx.fillStyle   = color;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth   = 1.5;
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#fff';
+        ctx.font      = 'bold 10px monospace';
+        ctx.shadowColor   = '#000';
+        ctx.shadowBlur    = 4;
+        ctx.fillText(LABEL_NAMES[kp.name], x + 10, kp.y + 4);
+        ctx.shadowBlur    = 0;
+
+        const conf = Math.round(kp.score * 100);
+        ctx.fillStyle = color;
+        ctx.font      = '9px monospace';
+        ctx.fillText(conf + '%', x + 10, kp.y + 15);
+      });
+
+      setStatus(`<span>Tracking — ${detected}/17 joints detected</span>`);
+    } else {
+      setStatus('No person detected — move into frame');
     }
+
+    rafId = requestAnimationFrame(() => loop(video, canvas));
   }
 
-  function analyzeNow() { analyzeFrame(); }
-
-  function startRun() {
-    if (timerInterval) return;
-    startTime = Date.now() - elapsed;
-    running   = true;
-
-    timerInterval = setInterval(() => {
-      elapsed = Date.now() - startTime;
-      document.getElementById('clock').textContent = fmt(elapsed);
-      updateMetrics();
-    }, 500);
-
-    analyzeInterval = setInterval(analyzeFrame, ANALYZE_INTERVAL_MS);
-    analyzeFrame();
-
-    document.getElementById('btnStart').disabled = true;
-    document.getElementById('btnStop').disabled  = false;
-    document.getElementById('btnSnap').disabled  = false;
-  }
-
-  function stopRun() {
-    clearInterval(timerInterval);
-    clearInterval(analyzeInterval);
-    timerInterval   = null;
-    analyzeInterval = null;
-    running         = false;
-
-    document.getElementById('btnStart').disabled = false;
-    document.getElementById('btnStop').disabled  = true;
-    document.getElementById('btnSnap').disabled  = true;
-
-    const name = document.getElementById('runnerName').value.trim() || 'Runner';
-    const dist = parseFloat(document.getElementById('distVal').value);
-    const unit = document.getElementById('distUnit').value;
-    addAIBubble(`Run complete! ${name} finished in ${fmt(elapsed)}. Distance: ${dist || '--'} ${unit}. Average pace: ${fmtPace(elapsed, dist)} min/${unit}. Great effort!`);
-  }
-
-  function resetAll() {
-    clearInterval(timerInterval);
-    clearInterval(analyzeInterval);
-    timerInterval   = null;
-    analyzeInterval = null;
-    elapsed         = 0;
-    splitCount      = 0;
-    analysisCount   = 0;
-    lastSplitTime   = 0;
-    running         = false;
-
-    document.getElementById('clock').textContent               = '00:00:00';
-    document.getElementById('metPace').textContent             = '--:--';
-    document.getElementById('metSpeed').textContent            = '--';
-    document.getElementById('metSplits').textContent           = '0';
-    document.getElementById('metAnalyses').textContent         = '0';
-    document.getElementById('aiFeed').innerHTML                = '';
-    document.getElementById('splitsList').innerHTML            = '';
-    document.getElementById('aiSection').style.display        = 'none';
-    document.getElementById('splitsSection').style.display    = 'none';
-    document.getElementById('predictBox').style.display       = 'none';
-    document.getElementById('btnStart').disabled              = !stream;
-    document.getElementById('btnStop').disabled               = true;
-    document.getElementById('btnSnap').disabled               = true;
-  }
+  // Attach event listeners explicitly to avoid ReferenceErrors during execution
+  window.addEventListener('load', () => {
+    document.getElementById('btnStart').onclick = init;
+    document.getElementById('btnToggle').onclick = toggleSkeleton;
+    document.getElementById('btnMirror').onclick = toggleMirror;
+    
+    const slider = document.getElementById('confSlider');
+    slider.oninput = function() {
+      confVal = parseFloat(this.value);
+      document.getElementById('confOut').textContent = this.value;
+    };
+  });
 </script>
 </body>
 </html>
