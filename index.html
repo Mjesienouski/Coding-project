@@ -95,9 +95,10 @@
   </div>
 </div>
 
-<!-- Load MediaPipe Pose -->
+<!-- Load MediaPipe Pose and Drawing Utils -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 <script>
 let pose = null;
@@ -211,14 +212,15 @@ function onResults(results) {
   }
   
   ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-  ctx.restore();
-
-  if (lineStartPos !== null) drawMarker(lineStartPos, '#00FF88', 'START');
-  if (lineFinishPos !== null) drawMarker(lineFinishPos, '#FF4444', 'FINISH');
 
   if (results.poseLandmarks) {
-    // MediaPipe uses normalized coordinates (0-1). We convert them to pixel values.
-    // We use the midpoint between hips for stable center-of-mass tracking
+    // 1. Draw the Full Skeleton Connectivity and Joints
+    drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS,
+                 {color: '#FFFFFF88', lineWidth: 2});
+    drawLandmarks(ctx, results.poseLandmarks,
+                {color: '#4D96FF', lineWidth: 1, radius: 4});
+
+    // 2. Logic for Timer (Center of Mass)
     const leftHip = results.poseLandmarks[23];
     const rightHip = results.poseLandmarks[24];
     
@@ -226,15 +228,13 @@ function onResults(results) {
       const centerX = ((leftHip.x + rightHip.x) / 2) * canvas.width;
       const centerY = ((leftHip.y + rightHip.y) / 2) * canvas.height;
       
-      // If mirrored, the visual coordinate needs to be flipped for drawing
-      const drawX = isMirrored ? (canvas.width - centerX) : centerX;
-      
+      // Highlight the "Tracking Node" used for timing
       ctx.beginPath();
-      ctx.arc(drawX, centerY, 12, 0, Math.PI * 2);
-      ctx.fillStyle = '#4D96FF';
+      ctx.arc(centerX, centerY, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#00FF88';
       ctx.fill();
       ctx.strokeStyle = 'white';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2;
       ctx.stroke();
 
       // Trigger Logic
@@ -242,7 +242,6 @@ function onResults(results) {
       
       if (lineStartPos !== null && lineFinishPos !== null && !isFinished) {
         if (prevBodyCoord !== null) {
-          // Detect crossing lines
           const crossedStart = (prevBodyCoord < lineStartPos && currentVal >= lineStartPos) || 
                                (prevBodyCoord > lineStartPos && currentVal <= lineStartPos);
           const crossedFinish = (prevBodyCoord < lineFinishPos && currentVal >= lineFinishPos) || 
@@ -261,18 +260,29 @@ function onResults(results) {
       }
     }
   }
+  ctx.restore();
+
+  // Draw timing markers on top of everything
+  if (lineStartPos !== null) drawMarker(lineStartPos, '#00FF88', 'START');
+  if (lineFinishPos !== null) drawMarker(lineFinishPos, '#FF4444', 'FINISH');
   
   if (isRunning || isFinished) updateUI();
 }
 
 function drawMarker(pos, color, label) {
   ctx.save();
+  // If mirrored, the marker position on canvas should match the visual world
+  let drawPos = pos;
+  if (isMirrored && markerOrientation === 'vertical') {
+    drawPos = canvas.width - pos;
+  }
+
   ctx.strokeStyle = color;
   ctx.lineWidth = 6;
   ctx.setLineDash([15, 10]);
   ctx.beginPath();
   if (markerOrientation === 'vertical') {
-    ctx.moveTo(pos, 0); ctx.lineTo(pos, canvas.height);
+    ctx.moveTo(drawPos, 0); ctx.lineTo(drawPos, canvas.height);
   } else {
     ctx.moveTo(0, pos); ctx.lineTo(canvas.width, pos);
   }
@@ -280,7 +290,7 @@ function drawMarker(pos, color, label) {
   
   ctx.fillStyle = color;
   ctx.font = "bold 20px sans-serif";
-  if (markerOrientation === 'vertical') ctx.fillText(label, pos + 10, 40);
+  if (markerOrientation === 'vertical') ctx.fillText(label, drawPos + 10, 40);
   else ctx.fillText(label, 15, pos - 15);
   ctx.restore();
 }
@@ -316,8 +326,14 @@ document.getElementById('btnSetMarkers').onclick = () => {
 function handleMarkerInput(e) {
   if (!settingMarkers) return;
   const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  let x = (e.clientX - rect.left) * (canvas.width / rect.width);
   const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  
+  // If mirrored, the click position x needs to be reversed to get "world" coordinates
+  if (isMirrored) {
+    x = canvas.width - x;
+  }
+
   const val = markerOrientation === 'vertical' ? x : y;
 
   if (markerClickCount === 0) {
