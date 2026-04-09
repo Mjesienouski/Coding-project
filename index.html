@@ -49,6 +49,7 @@
   <button class="btn-gray" id="btnSwitch" disabled>Flip Camera</button>
   <button class="btn-gray" id="btnMirror" disabled>Mirror Off</button>
   <button class="btn-gray" id="btnToggle" disabled>Skeleton</button>
+  <button class="btn-gray" id="btnMode" disabled>Mode: Vertical</button>
   <button class="btn-gray" id="btnSetMarkers" disabled>Set Markers</button>
   <button class="btn-red" id="btnReset" disabled>Reset Timer</button>
   <div class="slider-wrap">
@@ -93,10 +94,11 @@
 let detector = null, rafId = null, confVal = 0.3, showSkel = true;
 let currentFacingMode = 'environment', isMirrored = false, stream = null;
 let settingMarkers = false, markerClickCount = 0;
-let startLineX = null, finishLineX = null;
+let startLinePos = null, finishLinePos = null; // Changed from X to generic Pos
+let markerOrientation = 'vertical'; // 'vertical' (crosses x) or 'horizontal' (crosses y)
 let startTime = null, finishTime = null, splitMs = null;
 let startCrossed = false, finishCrossed = false;
-let prevBodyX = null;
+let prevTriggerVal = null; // Changed from prevBodyX
 
 const COLORS = {
   nose:'#FF6B6B', left_eye:'#FF6B6B', right_eye:'#FF6B6B',
@@ -140,7 +142,7 @@ function updateTimingPanel() {
   const tSplit = document.getElementById('tSplit');
 
   if (!startCrossed && !finishCrossed) {
-    tStatus.textContent = startLineX !== null ? 'Ready' : 'Place markers';
+    tStatus.textContent = startLinePos !== null ? 'Ready' : 'Place markers';
     tStatus.className = 't-value t-yellow';
   } else if (startCrossed && !finishCrossed) {
     tStatus.textContent = 'Running...';
@@ -157,28 +159,37 @@ function updateTimingPanel() {
 
 function resetTimer() {
   startTime = null; finishTime = null; splitMs = null;
-  startCrossed = false; finishCrossed = false; prevBodyX = null;
+  startCrossed = false; finishCrossed = false; prevTriggerVal = null;
   updateTimingPanel();
   setHint('Timer reset. Runner can go again.');
 }
 
-function getChestCenterX(kpMap) {
-  // We use the center point between shoulders as the "Chest Line"
+function getChestCenter(kpMap) {
   const keys = ['left_shoulder', 'right_shoulder'];
-  let sum = 0, count = 0;
+  let sumX = 0, sumY = 0, count = 0;
   keys.forEach(k => {
-    if (kpMap[k] && kpMap[k].score >= confVal) { sum += kpMap[k].x; count++; }
+    if (kpMap[k] && kpMap[k].score >= confVal) { 
+      sumX += kpMap[k].x; 
+      sumY += kpMap[k].y;
+      count++; 
+    }
   });
-  return count > 0 ? sum / count : null;
+  if (count === 0) return null;
+  return { x: sumX / count, y: sumY / count };
 }
 
-function checkLineCrossing(bodyX) {
-  if (bodyX === null || prevBodyX === null) { prevBodyX = bodyX; return; }
+function checkLineCrossing(center) {
+  if (!center || prevTriggerVal === null) { 
+    if (center) prevTriggerVal = (markerOrientation === 'vertical' ? center.x : center.y);
+    return; 
+  }
+  
+  const currentVal = (markerOrientation === 'vertical' ? center.x : center.y);
   const now = performance.now();
 
-  if (!startCrossed && startLineX !== null) {
-    const crossed = (prevBodyX < startLineX && bodyX >= startLineX) ||
-                    (prevBodyX > startLineX && bodyX <= startLineX);
+  if (!startCrossed && startLinePos !== null) {
+    const crossed = (prevTriggerVal < startLinePos && currentVal >= startLinePos) ||
+                    (prevTriggerVal > startLinePos && currentVal <= startLinePos);
     if (crossed) {
       startCrossed = true;
       startTime = now;
@@ -187,9 +198,9 @@ function checkLineCrossing(bodyX) {
     }
   }
 
-  if (startCrossed && !finishCrossed && finishLineX !== null) {
-    const crossed = (prevBodyX < finishLineX && bodyX >= finishLineX) ||
-                    (prevBodyX > finishLineX && bodyX <= finishLineX);
+  if (startCrossed && !finishCrossed && finishLinePos !== null) {
+    const crossed = (prevTriggerVal < finishLinePos && currentVal >= finishLinePos) ||
+                    (prevTriggerVal > finishLinePos && currentVal <= finishLinePos);
     if (crossed) {
       finishCrossed = true;
       finishTime = now;
@@ -199,7 +210,7 @@ function checkLineCrossing(bodyX) {
     }
   }
 
-  prevBodyX = bodyX;
+  prevTriggerVal = currentVal;
 }
 
 function toggleSkeleton() {
@@ -207,6 +218,17 @@ function toggleSkeleton() {
   const btn = document.getElementById('btnToggle');
   if (showSkel) btn.classList.add('btn-active');
   else btn.classList.remove('btn-active');
+}
+
+function toggleMarkerOrientation() {
+  markerOrientation = markerOrientation === 'vertical' ? 'horizontal' : 'vertical';
+  document.getElementById('btnMode').textContent = `Mode: ${markerOrientation.charAt(0).toUpperCase() + markerOrientation.slice(1)}`;
+  // Clear markers as they are likely invalid for the new orientation
+  startLinePos = null;
+  finishLinePos = null;
+  prevTriggerVal = null;
+  updateTimingPanel();
+  setHint(`Orientation switched to ${markerOrientation}. Please reset markers.`);
 }
 
 function toggleMirror() {
@@ -234,29 +256,36 @@ async function switchCamera() {
 function enableMarkerSetting() {
   settingMarkers = true;
   markerClickCount = 0;
-  startLineX = null; finishLineX = null;
+  startLinePos = null; finishLinePos = null;
   document.getElementById('btnSetMarkers').textContent = 'Setting markers...';
   document.getElementById('btnSetMarkers').classList.add('btn-active');
-  setHint('Click the canvas to place the START line (green), then click again for the FINISH line (red).');
+  const type = markerOrientation === 'vertical' ? 'left-to-right' : 'top-to-bottom';
+  setHint(`Place markers for ${type} tracking. Click twice on the canvas.`);
 }
 
 function onCanvasClick(e) {
   if (!settingMarkers) return;
   const canvas = document.getElementById('poseCanvas');
   const rect = canvas.getBoundingClientRect();
+  
   const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  
   let clickX = (e.clientX - rect.left) * scaleX;
+  let clickY = (e.clientY - rect.top) * scaleY;
 
   if (isMirrored) {
     clickX = canvas.width - clickX;
   }
 
+  const currentPos = (markerOrientation === 'vertical' ? clickX : clickY);
+
   if (markerClickCount === 0) {
-    startLineX = clickX;
+    startLinePos = currentPos;
     markerClickCount = 1;
     setHint('Start line set. Click to place FINISH.');
   } else if (markerClickCount === 1) {
-    finishLineX = clickX;
+    finishLinePos = currentPos;
     markerClickCount = 2;
     settingMarkers = false;
     document.getElementById('btnSetMarkers').textContent = 'Set Markers';
@@ -275,11 +304,9 @@ async function updateCanvasDimensions() {
   const W = video.videoWidth;
   const H = video.videoHeight;
   
-  // Set internal resolution
   canvas.width = W;
   canvas.height = H;
 
-  // Recalculate display size based on screen
   const containerWidth = window.innerWidth - 40;
   const containerHeight = window.innerHeight * 0.6;
   
@@ -339,6 +366,7 @@ async function initCamera() {
   document.getElementById('btnMirror').disabled = false;
   document.getElementById('btnSetMarkers').disabled = false;
   document.getElementById('btnReset').disabled = false;
+  document.getElementById('btnMode').disabled = false;
   
   if (showSkel) document.getElementById('btnToggle').classList.add('btn-active');
   updateMirrorBtn();
@@ -354,7 +382,6 @@ async function loop(video, canvas) {
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
 
-  // Clear and prep
   ctx.save();
   if (isMirrored) {
     ctx.translate(W, 0);
@@ -363,38 +390,38 @@ async function loop(video, canvas) {
 
   ctx.drawImage(video, 0, 0, W, H);
 
-  // Markers are vertical lines going from top to bottom (0 to H)
-  if (startLineX !== null) {
+  // Helper to draw lines
+  const drawLine = (pos, color, isCrossed, label) => {
     ctx.save();
-    ctx.beginPath(); ctx.moveTo(startLineX, 0); ctx.lineTo(startLineX, H);
-    ctx.strokeStyle = startCrossed ? 'rgba(0,255,136,0.5)' : '#00FF88';
+    ctx.beginPath();
+    if (markerOrientation === 'vertical') {
+      ctx.moveTo(pos, 0); ctx.lineTo(pos, H);
+    } else {
+      ctx.moveTo(0, pos); ctx.lineTo(W, pos);
+    }
+    ctx.strokeStyle = isCrossed ? color + '80' : color;
     ctx.lineWidth = 6; ctx.setLineDash([10, 6]); ctx.stroke();
     
-    // Label
     ctx.restore();
     ctx.save();
     if (isMirrored) { ctx.translate(W, 0); ctx.scale(-1, 1); }
-    const drawX = isMirrored ? (W - startLineX) : startLineX;
-    ctx.fillStyle = '#00FF88'; ctx.font = 'bold 24px sans-serif';
-    ctx.fillText('START', drawX + 10, 40);
+    
+    let labelX, labelY;
+    if (markerOrientation === 'vertical') {
+      labelX = isMirrored ? (W - pos) : pos;
+      labelY = 40;
+    } else {
+      labelX = 20;
+      labelY = pos + (pos < 50 ? 30 : -10);
+    }
+    
+    ctx.fillStyle = color; ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(label, labelX + 10, labelY);
     ctx.restore();
-  }
+  };
 
-  if (finishLineX !== null) {
-    ctx.save();
-    ctx.beginPath(); ctx.moveTo(finishLineX, 0); ctx.lineTo(finishLineX, H);
-    ctx.strokeStyle = finishCrossed ? 'rgba(255,40,40,0.5)' : '#FF4444';
-    ctx.lineWidth = 6; ctx.setLineDash([10, 6]); ctx.stroke();
-    
-    // Label
-    ctx.restore();
-    ctx.save();
-    if (isMirrored) { ctx.translate(W, 0); ctx.scale(-1, 1); }
-    const drawX = isMirrored ? (W - finishLineX) : finishLineX;
-    ctx.fillStyle = '#FF4444'; ctx.font = 'bold 24px sans-serif';
-    ctx.fillText('FINISH', drawX + 10, 40);
-    ctx.restore();
-  }
+  if (startLinePos !== null) drawLine(startLinePos, '#00FF88', startCrossed, 'START');
+  if (finishLinePos !== null) drawLine(finishLinePos, '#FF4444', finishCrossed, 'FINISH');
 
   let poses = [];
   try { poses = await detector.estimatePoses(video); } catch(e) {}
@@ -404,8 +431,8 @@ async function loop(video, canvas) {
     const kpMap = {};
     pose.keypoints.forEach(kp => { kpMap[kp.name] = kp; });
 
-    const chestX = getChestCenterX(kpMap);
-    checkLineCrossing(chestX);
+    const center = getChestCenter(kpMap);
+    checkLineCrossing(center);
 
     if (showSkel) {
       PAIRS.forEach(([a, b]) => {
@@ -422,21 +449,17 @@ async function loop(video, canvas) {
       if (kp.score < confVal) return;
       ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, Math.PI * 2);
       ctx.fillStyle = COLORS[kp.name] || '#fff'; ctx.fill();
-      ctx.beginPath(); ctx.arc(kp.x, kp.y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff'; ctx.fill();
     });
 
-    if (chestX !== null) {
-      // Highlight the chest trigger point specifically
-      const chestY = (kpMap['left_shoulder'].y + kpMap['right_shoulder'].y) / 2;
-      ctx.beginPath(); ctx.arc(chestX, chestY, 15, 0, Math.PI * 2);
+    if (center !== null) {
+      ctx.beginPath(); ctx.arc(center.x, center.y, 15, 0, Math.PI * 2);
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
-      ctx.beginPath(); ctx.arc(chestX, chestY, 6, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(center.x, center.y, 6, 0, Math.PI * 2);
       ctx.fillStyle = '#FFD93D'; ctx.fill();
     }
   }
 
-  ctx.restore(); // Final restore of mirroring transform
+  ctx.restore();
 
   if (startCrossed && !finishCrossed) {
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
@@ -458,6 +481,7 @@ window.addEventListener('load', () => {
   document.getElementById('btnMirror').onclick = toggleMirror;
   document.getElementById('btnSetMarkers').onclick = enableMarkerSetting;
   document.getElementById('btnReset').onclick = resetTimer;
+  document.getElementById('btnMode').onclick = toggleMarkerOrientation;
   
   const slider = document.getElementById('confSlider');
   slider.oninput = function() {
@@ -467,7 +491,6 @@ window.addEventListener('load', () => {
 
   window.addEventListener('resize', updateCanvasDimensions);
   window.addEventListener('orientationchange', () => {
-    // Small delay to allow browser to update dimensions
     setTimeout(updateCanvasDimensions, 200);
   });
   window.addEventListener('unload', () => { if (stream) stream.getTracks().forEach(t => t.stop()); });
