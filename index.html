@@ -1,412 +1,316 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Runner Timing Tracker - Spatial Memory</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, system-ui, sans-serif;
-            background-color: #0a0a0a;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            overflow: hidden;
-            touch-action: none;
-        }
-
-        .header { padding: 15px; text-align: center; }
-        h1 { font-size: 18px; margin: 0; color: #3b82f6; letter-spacing: 1px; }
-
-        .video-container {
-            position: relative;
-            width: 100vw;
-            height: 60vh;
-            background: #000;
-            overflow: hidden;
-        }
-
-        video, #output-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        #ui-layer {
-            position: absolute;
-            inset: 0;
-            z-index: 20;
-            pointer-events: none;
-        }
-
-        .controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            width: 90vw;
-            max-width: 500px;
-            margin-top: 15px;
-            z-index: 30;
-        }
-
-        button {
-            padding: 14px;
-            border: none;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 700;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: transform 0.1s, opacity 0.2s;
-        }
-
-        button:active { transform: scale(0.96); }
-
-        .btn-blue { background: #3b82f6; color: white; }
-        .btn-gray { background: #334155; color: white; }
-        .btn-red { background: #ef4444; color: white; }
-        .btn-active { outline: 3px solid #10b981; }
-
-        .stats {
-            width: 90vw;
-            max-width: 500px;
-            margin-top: 15px;
-            background: #1e293b;
-            padding: 15px;
-            border-radius: 16px;
-            display: flex;
-            justify-content: space-around;
-        }
-
-        .stat-box { text-align: center; }
-        .stat-label { font-size: 10px; color: #94a3b8; margin-bottom: 4px; }
-        .stat-value { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
-
-        .marker-label {
-            position: absolute;
-            top: 20px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 900;
-            transform: translateX(-50%);
-            white-space: nowrap;
-        }
-
-        .guide-toast {
-            position: fixed;
-            top: 100px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
-            padding: 12px 24px;
-            border-radius: 30px;
-            font-size: 14px;
-            border: 1px solid #3b82f6;
-            z-index: 100;
-            pointer-events: none;
-            transition: opacity 0.3s;
-        }
-
-        #flash {
-            position: fixed;
-            inset: 0;
-            background: white;
-            opacity: 0;
-            pointer-events: none;
-            z-index: 200;
-        }
-    </style>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Runner Timing Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 1rem; }
+    h1 { font-size: 14px; font-weight: 600; color: #888; margin-bottom: 1rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .canvas-wrap { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid #333; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 100%; cursor: crosshair; }
+    #videoEl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
+    #poseCanvas { display: block; max-width: 100%; height: auto; }
+    .controls { display: flex; align-items: center; gap: 8px; margin-top: 1rem; flex-wrap: wrap; justify-content: center; max-width: 700px; }
+    button { padding: 9px 16px; border: none; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-green { background: #1D9E75; color: #fff; }
+    .btn-gray { background: #222; color: #ccc; border: 1px solid #444; }
+    .btn-gray:active { background: #333; }
+    .btn-red { background: #c0392b; color: #fff; }
+    button:disabled { opacity: 0.25; cursor: default; }
+    .slider-wrap { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #888; background: #1a1a1a; padding: 6px 12px; border-radius: 20px; border: 1px solid #333; }
+    input[type=range] { width: 70px; accent-color: #1D9E75; cursor: pointer; }
+    .status { font-size: 12px; color: #666; margin-top: 10px; text-align: center; min-height: 1.4em; }
+    .status span { color: #1D9E75; font-weight: 600; }
+    .timing-panel { margin-top: 12px; background: #111; border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px 20px; min-width: 300px; max-width: 600px; width: 100%; }
+    .timing-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #1e1e1e; }
+    .timing-row:last-child { border-bottom: none; }
+    .t-label { color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .t-value { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+    .t-green { color: #1D9E75; }
+    .t-yellow { color: #FFD93D; }
+    .t-blue { color: #4D96FF; }
+    .hint { font-size: 11px; color: #555; margin-top: 8px; text-align: center; }
+    .legend { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+    .leg-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #555; text-transform: uppercase; font-weight: 700; }
+    .leg-dot { width: 7px; height: 7px; border-radius: 50%; }
+  </style>
 </head>
 <body>
+<h1>Runner Timing Tracker</h1>
+<div class="canvas-wrap" id="canvasWrap">
+  <video id="videoEl" autoplay muted playsinline></video>
+  <canvas id="poseCanvas"></canvas>
+</div>
+<div class="controls">
+  <button class="btn-green" id="btnStart">Start Tracking</button>
+  <button class="btn-gray" id="btnSwitch" disabled>Flip Camera</button>
+  <button class="btn-gray" id="btnToggle" disabled>Skeleton</button>
+  <button class="btn-gray" id="btnSetMarkers" disabled>Set Markers</button>
+  <button class="btn-red" id="btnReset" disabled>Reset Timer</button>
+  <div class="slider-wrap">
+    Confidence
+    <input type="range" id="confSlider" min="0.1" max="0.9" step="0.05" value="0.3" />
+    <span id="confOut" style="width:28px;">0.30</span>
+  </div>
+</div>
+<div class="status" id="statusLine">Permission required for camera</div>
+<div class="hint" id="hintLine">After tracking starts, click Set Markers then click the canvas twice to place start and finish lines.</div>
+<div class="timing-panel">
+  <div class="timing-row">
+    <span class="t-label">Status</span>
+    <span class="t-value t-yellow" id="tStatus">Waiting</span>
+  </div>
+  <div class="timing-row">
+    <span class="t-label">Start line crossed</span>
+    <span class="t-value t-green" id="tStart">--:--:---</span>
+  </div>
+  <div class="timing-row">
+    <span class="t-label">Finish line crossed</span>
+    <span class="t-value t-green" id="tFinish">--:--:---</span>
+  </div>
+  <div class="timing-row" style="border-top:1px solid #2a2a2a;margin-top:4px;padding-top:8px;">
+    <span class="t-label">Split Time</span>
+    <span class="t-value t-blue" id="tSplit" style="font-size:22px;">--.---s</span>
+  </div>
+</div>
+<div class="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#FF6B6B;"></div>Head</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FFD93D;"></div>Torso</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#6BCB77;"></div>Arms</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#4D96FF;"></div>Hips</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FF922B;"></div>Legs</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#00FF88;"></div>Start line</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FF4444;"></div>Finish line</div>
+</div>
 
-    <div id="flash"></div>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"><\/script>
+<script>
+let detector=null,rafId=null,confVal=0.3,showSkel=true;
+let currentFacingMode='environment',stream=null;
+let settingMarkers=false,markerClickCount=0;
+let startLineX=null,finishLineX=null;
+let startTime=null,finishTime=null,splitMs=null;
+let startCrossed=false,finishCrossed=false,prevBodyX=null;
 
-    <div class="header">
-        <h1>SPATIAL RUNNER TRACKER</h1>
-    </div>
+const COLORS={
+  nose:'#FF6B6B',left_eye:'#FF6B6B',right_eye:'#FF6B6B',
+  left_ear:'#FF6B6B',right_ear:'#FF6B6B',
+  left_shoulder:'#FFD93D',right_shoulder:'#FFD93D',
+  left_elbow:'#6BCB77',right_elbow:'#6BCB77',
+  left_wrist:'#6BCB77',right_wrist:'#6BCB77',
+  left_hip:'#4D96FF',right_hip:'#4D96FF',
+  left_knee:'#FF922B',right_knee:'#FF922B',
+  left_ankle:'#CC5DE8',right_ankle:'#CC5DE8'
+};
+const PAIRS=[
+  ['nose','left_eye'],['nose','right_eye'],
+  ['left_eye','left_ear'],['right_eye','right_ear'],
+  ['left_shoulder','right_shoulder'],
+  ['left_shoulder','left_elbow'],['right_shoulder','right_elbow'],
+  ['left_elbow','left_wrist'],['right_elbow','right_wrist'],
+  ['left_shoulder','left_hip'],['right_shoulder','right_hip'],
+  ['left_hip','right_hip'],
+  ['left_hip','left_knee'],['right_hip','right_knee'],
+  ['left_knee','left_ankle'],['right_knee','right_ankle']
+];
 
-    <div class="video-container" id="interact-area">
-        <video id="webcam" playsinline muted></video>
-        <canvas id="output-canvas"></canvas>
-        <div id="ui-layer"></div>
-    </div>
+function setStatus(msg){document.getElementById('statusLine').innerHTML=msg;}
+function setHint(msg){document.getElementById('hintLine').textContent=msg;}
 
-    <div class="stats">
-        <div class="stat-box">
-            <div class="stat-label">STATUS</div>
-            <div class="stat-value" id="status-val" style="color: #94a3b8">READY</div>
-        </div>
-        <div class="stat-box">
-            <div class="stat-label">TIME</div>
-            <div class="stat-value" id="timer-val">00.000</div>
-        </div>
-    </div>
+function formatTime(ms){
+  if(ms===null)return'--:--:---';
+  const t=Math.round(ms);
+  const m=Math.floor(t/60000);
+  const s=Math.floor((t%60000)/1000);
+  const ms2=t%1000;
+  return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+':'+String(ms2).padStart(3,'0');
+}
 
-    <div class="controls">
-        <button id="btn-camera" class="btn-blue">Start Cam</button>
-        <button id="btn-markers" class="btn-gray" disabled>Set Markers</button>
-        <button id="btn-reset" class="btn-red">Reset</button>
-        <button id="btn-flip" class="btn-gray">Flip</button>
-    </div>
+function updateTimingPanel(){
+  const tStatus=document.getElementById('tStatus');
+  if(!startCrossed&&!finishCrossed){
+    tStatus.textContent=startLineX!==null?'Ready':'Place markers';
+    tStatus.className='t-value t-yellow';
+  }else if(startCrossed&&!finishCrossed){
+    tStatus.textContent='Running...';tStatus.className='t-value t-green';
+  }else{
+    tStatus.textContent='Finished!';tStatus.className='t-value t-blue';
+  }
+  document.getElementById('tStart').textContent=startTime!==null?formatTime(startTime):'--:--:---';
+  document.getElementById('tFinish').textContent=finishTime!==null?formatTime(finishTime):'--:--:---';
+  document.getElementById('tSplit').textContent=splitMs!==null?(splitMs/1000).toFixed(3)+'s':'--.---s';
+}
 
-    <div class="guide-toast" id="guide">Initializing...</div>
+function resetTimer(){
+  startTime=null;finishTime=null;splitMs=null;
+  startCrossed=false;finishCrossed=false;prevBodyX=null;
+  updateTimingPanel();setHint('Timer reset. Runner can go again.');
+}
 
-    <script>
-        const video = document.getElementById('webcam');
-        const canvas = document.getElementById('output-canvas');
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const uiLayer = document.getElementById('ui-layer');
-        
-        let detector;
-        let isSetting = false;
-        let markersCount = 0;
-        
-        // Spatial State (Stored in Absolute Pixel Units)
-        let startX = null;
-        let finishX = null;
-        let offsetX = 0; // The total camera pan offset in pixels
-        
-        // Tracking State
-        let lastFrameData = null;
-        let isRunning = false;
-        let isFinished = false;
-        let startTime = 0;
-        let lastChestX = null;
+function getBodyCenterX(kpMap){
+  const keys=['left_hip','right_hip','left_shoulder','right_shoulder'];
+  let sum=0,count=0;
+  keys.forEach(k=>{if(kpMap[k]&&kpMap[k].score>=confVal){sum+=kpMap[k].x;count++;}});
+  return count>0?sum/count:null;
+}
 
-        async function init() {
-            try {
-                const model = poseDetection.SupportedModels.MoveNet;
-                detector = await poseDetection.createDetector(model);
-                document.getElementById('guide').textContent = "Camera Ready";
-                document.getElementById('btn-markers').disabled = false;
-            } catch(e) {
-                console.error(e);
-            }
-        }
+function checkLineCrossing(bodyX){
+  if(bodyX===null||prevBodyX===null){prevBodyX=bodyX;return;}
+  const now=performance.now();
+  if(!startCrossed&&startLineX!==null){
+    if((prevBodyX<startLineX&&bodyX>=startLineX)||(prevBodyX>startLineX&&bodyX<=startLineX)){
+      startCrossed=true;startTime=now;setHint('Start line crossed! Running...');updateTimingPanel();
+    }
+  }
+  if(startCrossed&&!finishCrossed&&finishLineX!==null){
+    if((prevBodyX<finishLineX&&bodyX>=finishLineX)||(prevBodyX>finishLineX&&bodyX<=finishLineX)){
+      finishCrossed=true;finishTime=now;splitMs=finishTime-startTime;
+      setHint('Finished! Split time recorded.');updateTimingPanel();
+    }
+  }
+  prevBodyX=bodyX;
+}
 
-        async function setupCamera(facing = 'environment') {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: facing, width: 640, height: 480 },
-                audio: false
-            });
-            video.srcObject = stream;
-            return new Promise(r => video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                r();
-            });
-        }
+function toggleSkeleton(){showSkel=!showSkel;document.getElementById('btnToggle').style.borderColor=showSkel?'#1D9E75':'#444';}
 
-        // --- THE SPATIAL ENGINE ---
-        // This function calculates how much the camera has moved horizontally
-        function calculateCameraShift() {
-            if (!lastFrameData) {
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = 40; tempCanvas.height = 40;
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.drawImage(video, canvas.width/2 - 20, canvas.height/2 - 20, 40, 40, 0, 0, 40, 40);
-                lastFrameData = tempCtx.getImageData(0,0,40,40);
-                return 0;
-            }
+async function switchCamera(){
+  currentFacingMode=currentFacingMode==='user'?'environment':'user';
+  if(rafId)cancelAnimationFrame(rafId);
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  await initCamera();
+}
 
-            // Simple block matching at the center of the screen to detect horizontal drift
-            // We sample a small 40x40 patch and see how much it moved
-            const searchWidth = 100;
-            const patchSize = 40;
-            const yStart = Math.floor(canvas.height / 2 - patchSize / 2);
-            const xStart = Math.floor(canvas.width / 2 - searchWidth / 2);
-            
-            const currentStrip = ctx.getImageData(xStart, yStart, searchWidth, patchSize);
-            
-            let bestMatchX = 0;
-            let minDiff = Infinity;
+function enableMarkerSetting(){
+  settingMarkers=true;markerClickCount=0;startLineX=null;finishLineX=null;
+  document.getElementById('btnSetMarkers').textContent='Setting...';
+  document.getElementById('btnSetMarkers').style.borderColor='#FFD93D';
+  setHint('Click the canvas to place the START line (green), then click again for FINISH (red).');
+}
 
-            for (let ox = 0; ox < searchWidth - patchSize; ox++) {
-                let diff = 0;
-                for (let i = 0; i < patchSize * patchSize; i++) {
-                    // Compare luminosity (green channel is a good proxy)
-                    const p1 = lastFrameData.data[i * 4 + 1];
-                    const p2 = currentStrip.data[(ox + (i % patchSize) + Math.floor(i / patchSize) * searchWidth) * 4 + 1];
-                    diff += Math.abs(p1 - p2);
-                }
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    bestMatchX = ox;
-                }
-            }
+function onCanvasClick(e){
+  if(!settingMarkers)return;
+  const canvas=document.getElementById('poseCanvas');
+  const rect=canvas.getBoundingClientRect();
+  const clickX=(e.clientX-rect.left)*(canvas.width/rect.width);
+  if(markerClickCount===0){
+    startLineX=clickX;markerClickCount=1;
+    setHint('Start set. Now click to place the FINISH line (red).');
+  }else if(markerClickCount===1){
+    finishLineX=clickX;markerClickCount=2;settingMarkers=false;
+    document.getElementById('btnSetMarkers').textContent='Set Markers';
+    document.getElementById('btnSetMarkers').style.borderColor='#1D9E75';
+    setHint('Markers placed! Runner crosses green first, then red.');
+    updateTimingPanel();
+  }
+}
 
-            // Calculate shift relative to the center of the search area
-            const shift = bestMatchX - (searchWidth / 2 - patchSize / 2);
-            
-            // Update reference for next frame
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = patchSize; tempCanvas.height = patchSize;
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCtx.drawImage(video, canvas.width/2 - patchSize/2, canvas.height/2 - patchSize/2, patchSize, patchSize, 0, 0, patchSize, patchSize);
-            lastFrameData = tempCtx.getImageData(0,0,patchSize,patchSize);
+async function initCamera(){
+  document.getElementById('btnStart').disabled=true;
+  document.getElementById('btnSwitch').disabled=true;
+  setStatus('Connecting to camera...');
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:currentFacingMode,width:{ideal:640},height:{ideal:480}},audio:false
+    });
+  }catch(e){setStatus('Camera error: '+e.message);document.getElementById('btnStart').disabled=false;return;}
 
-            return shift;
-        }
+  const video=document.getElementById('videoEl');
+  const canvas=document.getElementById('poseCanvas');
+  const wrap=document.getElementById('canvasWrap');
+  video.srcObject=stream;
+  await new Promise(r=>{video.onloadedmetadata=r;});
+  await video.play();
+  const W=video.videoWidth,H=video.videoHeight;
+  canvas.width=W;canvas.height=H;
+  const maxW=Math.min(window.innerWidth-40,640);
+  const scale=maxW/W;
+  wrap.style.width=Math.round(W*scale)+'px';
+  wrap.style.height=Math.round(H*scale)+'px';
 
-        async function loop() {
-            ctx.drawImage(video, 0, 0);
-            
-            // 1. Update Camera Offset (Spatial Memory)
-            const shift = calculateCameraShift();
-            offsetX += shift;
+  if(!detector){
+    setStatus('Loading AI model...');
+    await tf.ready();
+    detector=await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      {modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING}
+    );
+  }
+  setStatus('<span>Tracker Active</span>');
+  ['btnToggle','btnSwitch','btnSetMarkers','btnReset'].forEach(id=>document.getElementById(id).disabled=false);
+  document.getElementById('btnToggle').style.borderColor='#1D9E75';
+  canvas.addEventListener('click',onCanvasClick);
+  updateTimingPanel();
+  loop(video,canvas);
+}
 
-            // 2. Pose Detection
-            const poses = await detector.estimatePoses(video);
-            let currentChestX = null;
+async function loop(video,canvas){
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  ctx.drawImage(video,0,0,W,H);
 
-            if (poses.length > 0) {
-                const kp = poses[0].keypoints;
-                const lS = kp.find(k => k.name === 'left_shoulder');
-                const rS = kp.find(k => k.name === 'right_shoulder');
-                
-                if (lS.score > 0.3 && rS.score > 0.3) {
-                    // chestX relative to the current camera view
-                    const screenChestX = (lS.x + rS.x) / 2;
-                    // absoluteChestX relative to the world coordinate system
-                    currentChestX = screenChestX + offsetX;
+  if(startLineX!==null){
+    ctx.save();ctx.beginPath();ctx.moveTo(startLineX,0);ctx.lineTo(startLineX,H);
+    ctx.strokeStyle=startCrossed?'rgba(0,255,136,0.4)':'#00FF88';
+    ctx.lineWidth=3;ctx.setLineDash([10,6]);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#00FF88';ctx.font='bold 13px sans-serif';ctx.fillText('START',startLineX+5,20);
+    ctx.restore();
+  }
+  if(finishLineX!==null){
+    ctx.save();ctx.beginPath();ctx.moveTo(finishLineX,0);ctx.lineTo(finishLineX,H);
+    ctx.strokeStyle=finishCrossed?'rgba(255,68,68,0.4)':'#FF4444';
+    ctx.lineWidth=3;ctx.setLineDash([10,6]);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#FF4444';ctx.font='bold 13px sans-serif';ctx.fillText('FINISH',finishLineX+5,20);
+    ctx.restore();
+  }
+  if(startCrossed&&!finishCrossed){
+    const elapsed=((performance.now()-startTime)/1000).toFixed(2);
+    ctx.save();ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(8,H-36,130,28);
+    ctx.fillStyle='#1D9E75';ctx.font='bold 16px monospace';ctx.fillText('T+ '+elapsed+'s',16,H-16);ctx.restore();
+  }
 
-                    // Draw tracking marker
-                    ctx.fillStyle = "#3b82f6";
-                    ctx.beginPath();
-                    ctx.arc(screenChestX, (lS.y + rS.y)/2, 8, 0, Math.PI*2);
-                    ctx.fill();
+  let poses=[];
+  try{poses=await detector.estimatePoses(video);}catch(e){}
+  if(poses.length>0){
+    const kpMap={};
+    poses[0].keypoints.forEach(kp=>{kpMap[kp.name]=kp;});
+    const bodyX=getBodyCenterX(kpMap);
+    checkLineCrossing(bodyX);
+    if(showSkel){
+      PAIRS.forEach(([a,b])=>{
+        const ka=kpMap[a],kb=kpMap[b];
+        if(!ka||!kb||ka.score<confVal||kb.score<confVal)return;
+        ctx.beginPath();ctx.moveTo(ka.x,ka.y);ctx.lineTo(kb.x,kb.y);
+        ctx.strokeStyle=COLORS[a];ctx.globalAlpha=0.6;ctx.lineWidth=4;ctx.lineCap='round';ctx.stroke();
+        ctx.globalAlpha=1;
+      });
+    }
+    poses[0].keypoints.forEach(kp=>{
+      if(kp.score<confVal)return;
+      ctx.beginPath();ctx.arc(kp.x,kp.y,6,0,Math.PI*2);ctx.fillStyle=COLORS[kp.name]||'#fff';ctx.fill();
+      ctx.beginPath();ctx.arc(kp.x,kp.y,3,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();
+    });
+    if(bodyX!==null){
+      const by=(kpMap.left_hip&&kpMap.right_hip)?(kpMap.left_hip.y+kpMap.right_hip.y)/2:H/2;
+      ctx.beginPath();ctx.arc(bodyX,by,10,0,Math.PI*2);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+    }
+  }
+  rafId=requestAnimationFrame(()=>loop(video,canvas));
+}
 
-                    // Logic: Crossings
-                    if (startX !== null && !isRunning && !isFinished) {
-                        if (lastChestX && ((lastChestX <= startX && currentChestX > startX) || (lastChestX >= startX && currentChestX < startX))) {
-                            startRace();
-                        }
-                    } else if (finishX !== null && isRunning) {
-                        if (lastChestX && ((lastChestX <= finishX && currentChestX > finishX) || (lastChestX >= finishX && currentChestX < finishX))) {
-                            stopRace();
-                        }
-                    }
-                    lastChestX = currentChestX;
-                }
-            }
-
-            // 3. Render Markers (Adjusted by Camera Offset)
-            drawWorldLine(startX, "#10b981", "START");
-            drawWorldLine(finishX, "#ef4444", "FINISH");
-
-            // 4. Update Timer
-            if (isRunning) {
-                const now = performance.now();
-                document.getElementById('timer-val').textContent = ((now - startTime)/1000).toFixed(3);
-            }
-
-            requestAnimationFrame(loop);
-        }
-
-        function drawWorldLine(absX, color, label) {
-            if (absX === null) return;
-            const screenX = absX - offsetX;
-            
-            // Only draw if it's on screen (or near edges)
-            if (screenX > -50 && screenX < canvas.width + 50) {
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 4;
-                ctx.setLineDash([10, 5]);
-                ctx.beginPath();
-                ctx.moveTo(screenX, 0);
-                ctx.lineTo(screenX, canvas.height);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                ctx.fillStyle = color;
-                ctx.font = "bold 14px sans-serif";
-                ctx.fillText(label, screenX + 8, 30);
-            }
-        }
-
-        function startRace() {
-            isRunning = true;
-            startTime = performance.now();
-            document.getElementById('status-val').textContent = "RUNNING";
-            document.getElementById('status-val').style.color = "#10b981";
-            document.getElementById('flash').style.opacity = 0.5;
-            setTimeout(() => document.getElementById('flash').style.opacity = 0, 100);
-        }
-
-        function stopRace() {
-            isRunning = false;
-            isFinished = true;
-            const final = ((performance.now() - startTime)/1000).toFixed(3);
-            document.getElementById('timer-val').textContent = final;
-            document.getElementById('status-val').textContent = "FINISHED";
-            document.getElementById('status-val').style.color = "#3b82f6";
-            document.getElementById('flash').style.opacity = 0.8;
-            setTimeout(() => document.getElementById('flash').style.opacity = 0, 200);
-        }
-
-        // --- Interaction Handlers ---
-        document.getElementById('btn-camera').onclick = async () => {
-            await setupCamera();
-            video.play();
-            init();
-            loop();
-            document.getElementById('btn-camera').style.display = 'none';
-        };
-
-        document.getElementById('btn-markers').onclick = () => {
-            isSetting = true;
-            markersCount = 0;
-            startX = null; finishX = null;
-            document.getElementById('btn-markers').classList.add('btn-active');
-            document.getElementById('guide').textContent = "TAP START LOCATION";
-        };
-
-        document.getElementById('interact-area').onclick = (e) => {
-            if (!isSetting) return;
-            
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const screenX = (e.clientX - rect.left) * scaleX;
-            
-            // Save as an absolute world coordinate
-            const absX = screenX + offsetX;
-
-            if (markersCount === 0) {
-                startX = absX;
-                markersCount = 1;
-                document.getElementById('guide').textContent = "TAP FINISH LOCATION";
-            } else {
-                finishX = absX;
-                isSetting = false;
-                document.getElementById('btn-markers').classList.remove('btn-active');
-                document.getElementById('guide').textContent = "Ready. Crossing Start line triggers timer.";
-            }
-        };
-
-        document.getElementById('btn-reset').onclick = () => {
-            isRunning = false;
-            isFinished = false;
-            startX = null; finishX = null;
-            document.getElementById('timer-val').textContent = "00.000";
-            document.getElementById('status-val').textContent = "READY";
-            document.getElementById('status-val').style.color = "#94a3b8";
-            document.getElementById('guide').textContent = "Markers cleared.";
-        };
-
-        document.getElementById('btn-flip').onclick = () => {
-            const mode = video.srcObject.getTracks()[0].getSettings().facingMode === 'user' ? 'environment' : 'user';
-            setupCamera(mode);
-        };
-
-    </script>
+window.addEventListener('load',()=>{
+  document.getElementById('btnStart').onclick=initCamera;
+  document.getElementById('btnToggle').onclick=toggleSkeleton;
+  document.getElementById('btnSwitch').onclick=switchCamera;
+  document.getElementById('btnSetMarkers').onclick=enableMarkerSetting;
+  document.getElementById('btnReset').onclick=resetTimer;
+  document.getElementById('confSlider').oninput=function(){
+    confVal=parseFloat(this.value);
+    document.getElementById('confOut').textContent=parseFloat(this.value).toFixed(2);
+  };
+  window.addEventListener('unload',()=>{if(stream)stream.getTracks().forEach(t=>t.stop());});
+});
+<\/script>
 </body>
 </html>
