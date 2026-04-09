@@ -298,6 +298,7 @@ async function loop(video, canvas) {
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
 
+  // Render video without mirroring (no scale(-1, 1) or translate applied)
   ctx.drawImage(video, 0, 0, W, H);
 
   // Draw marker lines
