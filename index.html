@@ -156,9 +156,14 @@ async function initCamera() {
     document.getElementById('btnReset').disabled = false;
     document.getElementById('btnSwitch').disabled = false;
     
-    canvas.addEventListener('touchstart', handleInteraction);
-    canvas.addEventListener('mousedown', handleInteraction);
+    // Use click and touchstart handlers properly
+    canvas.onmousedown = handleInteraction;
+    canvas.ontouchstart = (e) => {
+        e.preventDefault();
+        handleInteraction(e);
+    };
 
+    if (rafId) cancelAnimationFrame(rafId);
     loop();
   } catch (e) {
     setStatus("Error: " + e.message);
@@ -176,22 +181,25 @@ function updateUI(canvas) {
 
 function handleInteraction(e) {
   if (!settingMarkers) return;
+  
   const canvas = document.getElementById('poseCanvas');
   const rect = canvas.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const x = (clientX - rect.left) * (canvas.width / rect.width);
+  
+  // Calculate relative X coordinate based on actual canvas dimensions
+  const scaleX = canvas.width / rect.width;
+  const x = (clientX - rect.left) * scaleX;
 
   if (markerClickCount === 0) {
     startLineX = x;
     markerClickCount = 1;
-    setStatus("Start Set. Tap Finish Line.");
+    setStatus("Start Set. Tap Finish Line location.");
   } else {
     finishLineX = x;
     markerClickCount = 0;
     settingMarkers = false;
     document.getElementById('btnSetMarkers').classList.remove('btn-active');
     setStatus("<span>Markers Locked</span>");
-    // Seed points for optical flow tracking
     seedPoints(canvas.width, canvas.height);
   }
 }
@@ -199,16 +207,21 @@ function handleInteraction(e) {
 function seedPoints(w, h) {
     point_count = 0;
     // Create a grid of points to track the environment
-    for(let y=20; y<h; y+=h/8) {
-        for(let x=20; x<w; x+=w/8) {
-            curr_xy[point_count<<1] = x;
-            curr_xy[(point_count<<1)+1] = y;
-            point_count++;
+    for(let y=h/4; y<h*0.75; y+=h/6) {
+        for(let x=w/4; x<w*0.75; x+=w/6) {
+            if(point_count < 100) {
+              curr_xy[point_count<<1] = x;
+              curr_xy[(point_count<<1)+1] = y;
+              point_count++;
+            }
         }
     }
 }
 
 function trackEnvironment(ctx, w, h) {
+    // Only track if markers are actually set
+    if (startLineX === null && finishLineX === null) return;
+
     const imageData = ctx.getImageData(0, 0, w, h);
     
     // Swap pyramids
@@ -216,38 +229,33 @@ function trackEnvironment(ctx, w, h) {
     prev_img_pyr = curr_img_pyr;
     curr_img_pyr = tmp;
     
-    // Convert current frame to grayscale for tracking
+    // Convert current frame to grayscale
     jsfeat.imgproc.grayscale(imageData.data, w, h, curr_img_pyr.data[0]);
     curr_img_pyr.build(curr_img_pyr.data[0]);
 
     if (point_count > 0) {
-        // Track points from prev to curr
         jsfeat.lucas_kanade_optical_flow.track(
             prev_img_pyr, curr_img_pyr, 
             prev_xy, curr_xy, 
             point_count, 20, 30, point_status, 0.01, 0.0001
         );
 
-        // Calculate average shift (X-axis)
         let totalShiftX = 0;
         let activePoints = 0;
         for (let i = 0; i < point_count; i++) {
             if (point_status[i] === 1) {
                 totalShiftX += (curr_xy[i<<1] - prev_xy[i<<1]);
                 activePoints++;
-                // Update prev for next frame
                 prev_xy[i<<1] = curr_xy[i<<1];
                 prev_xy[(i<<1)+1] = curr_xy[(i<<1)+1];
             }
         }
 
-        if (activePoints > point_count / 2) {
+        if (activePoints > 5) {
             const avgShiftX = totalShiftX / activePoints;
-            // Shift our markers in memory to match the pan
             if (startLineX !== null) startLineX += avgShiftX;
             if (finishLineX !== null) finishLineX += avgShiftX;
         } else {
-            // Lost too many points, re-seed (happens during fast movement)
             seedPoints(w, h);
         }
     }
@@ -261,12 +269,16 @@ async function loop() {
 
   ctx.drawImage(video, 0, 0, W, H);
   
-  // 1. Update panning memory
+  // Track panning
   trackEnvironment(ctx, W, H);
 
-  // 2. Pose Detection
+  // Throttled Pose Detection (to prevent UI freeze)
   let poses = [];
-  try { poses = await detector.estimatePoses(video); } catch(e) {}
+  if (detector && !settingMarkers) {
+    try { 
+      poses = await detector.estimatePoses(canvas); 
+    } catch(e) {}
+  }
 
   if (poses.length > 0) {
     const kp = poses[0].keypoints;
@@ -276,15 +288,12 @@ async function loop() {
     if (lSh && rSh && lSh.score > confVal && rSh.score > confVal) {
       const chestX = (lSh.x + rSh.x) / 2;
       
-      // Visualize Trigger Point
       ctx.beginPath();
       ctx.arc(chestX, (lSh.y + rSh.y)/2, 12, 0, Math.PI*2);
       ctx.fillStyle = "#FFD93D"; ctx.fill();
 
-      // Detection Logic
       const now = performance.now();
       if (prevChestX !== null) {
-        // Start Check
         if (!startCrossed && startLineX !== null) {
           if ((prevChestX < startLineX && chestX >= startLineX) || (prevChestX > startLineX && chestX <= startLineX)) {
              startCrossed = true; startTime = now;
@@ -292,7 +301,6 @@ async function loop() {
              setTimeout(() => document.body.classList.remove('flash-start'), 400);
           }
         }
-        // Finish Check
         if (startCrossed && !finishCrossed && finishLineX !== null) {
           if ((prevChestX < finishLineX && chestX >= finishLineX) || (prevChestX > finishLineX && chestX <= finishLineX)) {
              finishCrossed = true; finishTime = now;
@@ -303,13 +311,13 @@ async function loop() {
     }
   }
 
-  // 3. Render Markers (drawn even if X is off-screen)
+  // Draw Lines
   const drawMarker = (x, color, label) => {
     if (x === null) return;
     ctx.beginPath();
     ctx.setLineDash([10, 5]);
     ctx.moveTo(x, 0); ctx.lineTo(x, H);
-    ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = color; ctx.font = "bold 24px sans-serif";
     ctx.fillText(label, x + 10, 40);
@@ -318,7 +326,7 @@ async function loop() {
   drawMarker(startLineX, "#00FF88", "START");
   drawMarker(finishLineX, "#FF4444", "FINISH");
 
-  // 4. Update UI Panel
+  // UI Updates
   const tSplit = document.getElementById('tSplit');
   const tStatus = document.getElementById('tStatus');
   if (startCrossed && !finishCrossed) {
@@ -334,7 +342,10 @@ async function loop() {
 
 document.getElementById('btnStart').onclick = initCamera;
 document.getElementById('btnSetMarkers').onclick = () => {
-    settingMarkers = true; markerClickCount = 0;
+    settingMarkers = true; 
+    markerClickCount = 0;
+    startLineX = null;
+    finishLineX = null;
     document.getElementById('btnSetMarkers').classList.add('btn-active');
     setStatus("Tap START line location on track.");
 };
@@ -342,12 +353,17 @@ document.getElementById('btnReset').onclick = () => {
     startCrossed = false; finishCrossed = false;
     startTime = null; finishTime = null; prevChestX = null;
     document.getElementById('tSplit').textContent = "--.---s";
+    document.getElementById('tStatus').textContent = "Waiting";
+    document.getElementById('tStatus').style.color = "#FFD93D";
     setStatus("<span>Ready</span>");
 };
 document.getElementById('btnSwitch').onclick = async () => {
     currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
     if(stream) stream.getTracks().forEach(t => t.stop());
     initCamera();
+};
+document.getElementById('confSlider').oninput = (e) => {
+  confVal = parseFloat(e.target.value);
 };
 </script>
 </body>
