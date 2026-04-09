@@ -3,329 +3,393 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Live Pose Tracker</title>
+  <title>Runner Timing Tracker</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; overflow: hidden; }
-    h1 { font-size: 16px; font-weight: 600; color: #888; margin-bottom: 1rem; letter-spacing: 1.5px; text-transform: uppercase; }
-    
-    .canvas-wrap { 
-      position: relative; 
-      border-radius: 16px; 
-      overflow: hidden; 
-      border: 1px solid #333; 
-      background: #000;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      max-width: 100%;
-      max-height: 70vh;
-    }
+    body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 1rem; }
+    h1 { font-size: 14px; font-weight: 600; color: #888; margin-bottom: 1rem; letter-spacing: 1.5px; text-transform: uppercase; }
+    .canvas-wrap { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid #333; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 100%; cursor: crosshair; }
     #videoEl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
     #poseCanvas { display: block; max-width: 100%; height: auto; }
-    
-    .controls { 
-      display: flex; 
-      align-items: center; 
-      gap: 10px; 
-      margin-top: 1.25rem; 
-      flex-wrap: wrap; 
-      justify-content: center; 
-      max-width: 600px;
-    }
-    
-    button { 
-      padding: 10px 18px; 
-      border: none; 
-      border-radius: 10px; 
-      font-size: 13px; 
-      font-weight: 600; 
-      cursor: pointer; 
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
+    .controls { display: flex; align-items: center; gap: 8px; margin-top: 1rem; flex-wrap: wrap; justify-content: center; max-width: 700px; }
+    button { padding: 9px 16px; border: none; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .btn-green { background: #1D9E75; color: #fff; }
-    .btn-green:active { transform: scale(0.95); }
-    .btn-gray  { background: #222; color: #ccc; border: 1px solid #444; }
+    .btn-gray { background: #222; color: #ccc; border: 1px solid #444; }
     .btn-gray:active { background: #333; }
-    
-    button:disabled { opacity: 0.2; cursor: default; transform: none !important; }
-    
-    .slider-wrap { 
-      display: flex; 
-      align-items: center; 
-      gap: 10px; 
-      font-size: 12px; 
-      color: #888; 
-      background: #1a1a1a;
-      padding: 6px 12px;
-      border-radius: 20px;
-      border: 1px solid #333;
-    }
-    input[type=range] { width: 80px; accent-color: #1D9E75; cursor: pointer; }
-    
-    .status { font-size: 12px; color: #666; margin-top: 12px; text-align: center; height: 1.2em; }
+    .btn-red { background: #c0392b; color: #fff; }
+    button:disabled { opacity: 0.25; cursor: default; }
+    .slider-wrap { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #888; background: #1a1a1a; padding: 6px 12px; border-radius: 20px; border: 1px solid #333; }
+    input[type=range] { width: 70px; accent-color: #1D9E75; cursor: pointer; }
+    .status { font-size: 12px; color: #666; margin-top: 10px; text-align: center; min-height: 1.4em; }
     .status span { color: #1D9E75; font-weight: 600; }
-    
-    .legend { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 12px; padding: 0 10px; }
+    .timing-panel { margin-top: 12px; background: #111; border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px 20px; min-width: 300px; max-width: 600px; width: 100%; }
+    .timing-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 13px; border-bottom: 1px solid #1e1e1e; }
+    .timing-row:last-child { border-bottom: none; }
+    .t-label { color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .t-value { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+    .t-green { color: #1D9E75; }
+    .t-yellow { color: #FFD93D; }
+    .t-blue { color: #4D96FF; }
+    .hint { font-size: 11px; color: #555; margin-top: 8px; text-align: center; }
+    .legend { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
     .leg-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #555; text-transform: uppercase; font-weight: 700; }
     .leg-dot { width: 7px; height: 7px; border-radius: 50%; }
-
-    /* Icon placeholders */
-    .icon { width: 14px; height: 14px; fill: currentColor; }
   </style>
 </head>
 <body>
-
-<h1>Live Pose Tracker</h1>
-
+<h1>Runner Timing Tracker</h1>
 <div class="canvas-wrap" id="canvasWrap">
   <video id="videoEl" autoplay muted playsinline></video>
   <canvas id="poseCanvas"></canvas>
 </div>
-
 <div class="controls">
   <button class="btn-green" id="btnStart">Start Tracking</button>
   <button class="btn-gray" id="btnSwitch" disabled>Flip Camera</button>
   <button class="btn-gray" id="btnToggle" disabled>Skeleton</button>
-  <button class="btn-gray" id="btnMirror" disabled>Mirror</button>
-  
+  <button class="btn-gray" id="btnSetMarkers" disabled>Set Markers (click canvas)</button>
+  <button class="btn-red" id="btnReset" disabled>Reset Timer</button>
   <div class="slider-wrap">
     Confidence
     <input type="range" id="confSlider" min="0.1" max="0.9" step="0.05" value="0.3" />
-    <span id="confOut" style="width: 20px;">0.3</span>
+    <span id="confOut" style="width:28px;">0.30</span>
   </div>
 </div>
-
 <div class="status" id="statusLine">Permission required for camera</div>
-
+<div class="hint" id="hintLine">After tracking starts, click "Set Markers" then click the canvas twice to place the start and finish lines.</div>
+<div class="timing-panel" id="timingPanel">
+  <div class="timing-row">
+    <span class="t-label">Status</span>
+    <span class="t-value t-yellow" id="tStatus">Waiting</span>
+  </div>
+  <div class="timing-row">
+    <span class="t-label">Start line crossed</span>
+    <span class="t-value t-green" id="tStart">--:--:---</span>
+  </div>
+  <div class="timing-row">
+    <span class="t-label">Finish line crossed</span>
+    <span class="t-value t-green" id="tFinish">--:--:---</span>
+  </div>
+  <div class="timing-row" style="border-top: 1px solid #2a2a2a; margin-top: 4px; padding-top: 8px;">
+    <span class="t-label">Split Time</span>
+    <span class="t-value t-blue" id="tSplit" style="font-size:22px;">--.---s</span>
+  </div>
+</div>
 <div class="legend">
   <div class="leg-item"><div class="leg-dot" style="background:#FF6B6B;"></div>Head</div>
   <div class="leg-item"><div class="leg-dot" style="background:#FFD93D;"></div>Torso</div>
   <div class="leg-item"><div class="leg-dot" style="background:#6BCB77;"></div>Arms</div>
   <div class="leg-item"><div class="leg-dot" style="background:#4D96FF;"></div>Hips</div>
   <div class="leg-item"><div class="leg-dot" style="background:#FF922B;"></div>Legs</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#00FF88;"></div>Start line</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FF4444;"></div>Finish line</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
 <script>
-  let detector   = null;
-  let rafId      = null;
-  let confVal    = 0.3;
-  let showSkel   = true;
-  let mirrored   = true; // Default to mirrored for selfie
-  let currentFacingMode = 'user';
-  let stream = null;
+let detector = null, rafId = null, confVal = 0.3, showSkel = true;
+let currentFacingMode = 'environment', stream = null;
+let settingMarkers = false, markerClickCount = 0;
+let startLineX = null, finishLineX = null;
+let startTime = null, finishTime = null, splitMs = null;
+let startCrossed = false, finishCrossed = false;
+let prevBodyX = null;
 
-  const COLORS = {
-    nose:'#FF6B6B', left_eye:'#FF6B6B', right_eye:'#FF6B6B',
-    left_ear:'#FF6B6B', right_ear:'#FF6B6B',
-    left_shoulder:'#FFD93D', right_shoulder:'#FFD93D',
-    left_elbow:'#6BCB77',   right_elbow:'#6BCB77',
-    left_wrist:'#6BCB77',   right_wrist:'#6BCB77',
-    left_hip:'#4D96FF',     right_hip:'#4D96FF',
-    left_knee:'#FF922B',    right_knee:'#FF922B',
-    left_ankle:'#CC5DE8',   right_ankle:'#CC5DE8'
-  };
+const COLORS = {
+  nose:'#FF6B6B', left_eye:'#FF6B6B', right_eye:'#FF6B6B',
+  left_ear:'#FF6B6B', right_ear:'#FF6B6B',
+  left_shoulder:'#FFD93D', right_shoulder:'#FFD93D',
+  left_elbow:'#6BCB77', right_elbow:'#6BCB77',
+  left_wrist:'#6BCB77', right_wrist:'#6BCB77',
+  left_hip:'#4D96FF', right_hip:'#4D96FF',
+  left_knee:'#FF922B', right_knee:'#FF922B',
+  left_ankle:'#CC5DE8', right_ankle:'#CC5DE8'
+};
 
-  const PAIRS = [
-    ['nose','left_eye'],['nose','right_eye'],
-    ['left_eye','left_ear'],['right_eye','right_ear'],
-    ['left_shoulder','right_shoulder'],
-    ['left_shoulder','left_elbow'],['right_shoulder','right_elbow'],
-    ['left_elbow','left_wrist'],['right_elbow','right_wrist'],
-    ['left_shoulder','left_hip'],['right_shoulder','right_hip'],
-    ['left_hip','right_hip'],
-    ['left_hip','left_knee'],['right_hip','right_knee'],
-    ['left_knee','left_ankle'],['right_knee','right_ankle']
-  ];
+const PAIRS = [
+  ['nose','left_eye'],['nose','right_eye'],
+  ['left_eye','left_ear'],['right_eye','right_ear'],
+  ['left_shoulder','right_shoulder'],
+  ['left_shoulder','left_elbow'],['right_shoulder','right_elbow'],
+  ['left_elbow','left_wrist'],['right_elbow','right_wrist'],
+  ['left_shoulder','left_hip'],['right_shoulder','right_hip'],
+  ['left_hip','right_hip'],
+  ['left_hip','left_knee'],['right_hip','right_knee'],
+  ['left_knee','left_ankle'],['right_knee','right_ankle']
+];
 
-  function setStatus(msg) {
-    document.getElementById('statusLine').innerHTML = msg;
+function setStatus(msg) { document.getElementById('statusLine').innerHTML = msg; }
+function setHint(msg) { document.getElementById('hintLine').textContent = msg; }
+
+function formatTime(ms) {
+  if (ms === null) return '--:--:---';
+  const totalMs = Math.round(ms);
+  const mins = Math.floor(totalMs / 60000);
+  const secs = Math.floor((totalMs % 60000) / 1000);
+  const msec = totalMs % 1000;
+  return `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}:${String(msec).padStart(3,'0')}`;
+}
+
+function updateTimingPanel() {
+  const tStatus = document.getElementById('tStatus');
+  const tStart = document.getElementById('tStart');
+  const tFinish = document.getElementById('tFinish');
+  const tSplit = document.getElementById('tSplit');
+
+  if (!startCrossed && !finishCrossed) {
+    tStatus.textContent = startLineX !== null ? 'Ready' : 'Place markers';
+    tStatus.className = 't-value t-yellow';
+  } else if (startCrossed && !finishCrossed) {
+    tStatus.textContent = 'Running...';
+    tStatus.className = 't-value t-green';
+  } else if (startCrossed && finishCrossed) {
+    tStatus.textContent = 'Finished!';
+    tStatus.className = 't-value t-blue';
   }
 
-  function toggleSkeleton() {
-    showSkel = !showSkel;
-    document.getElementById('btnToggle').style.borderColor = showSkel ? '#1D9E75' : '#444';
-  }
+  tStart.textContent = startTime !== null ? formatTime(startTime) : '--:--:---';
+  tFinish.textContent = finishTime !== null ? formatTime(finishTime) : '--:--:---';
+  tSplit.textContent = splitMs !== null ? (splitMs / 1000).toFixed(3) + 's' : '--.---s';
+}
 
-  function toggleMirror() {
-    mirrored = !mirrored;
-    document.getElementById('btnMirror').style.borderColor = mirrored ? '#1D9E75' : '#444';
-  }
+function resetTimer() {
+  startTime = null; finishTime = null; splitMs = null;
+  startCrossed = false; finishCrossed = false; prevBodyX = null;
+  updateTimingPanel();
+  setHint('Timer reset. Runner can go again.');
+}
 
-  async function switchCamera() {
-    currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-    // Auto-adjust mirroring based on camera
-    mirrored = (currentFacingMode === 'user');
-    document.getElementById('btnMirror').style.borderColor = mirrored ? '#1D9E75' : '#444';
-    
-    if (rafId) cancelAnimationFrame(rafId);
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-    }
-    await initCamera();
-  }
-
-  async function initCamera() {
-    const btnStart = document.getElementById('btnStart');
-    const btnSwitch = document.getElementById('btnSwitch');
-    btnStart.disabled = true;
-    btnSwitch.disabled = true;
-    
-    setStatus(`Connecting to ${currentFacingMode === 'user' ? 'Front' : 'Back'} Camera...`);
-
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: currentFacingMode,
-          width: { ideal: 640 }, 
-          height: { ideal: 480 } 
-        },
-        audio: false
-      });
-    } catch(e) {
-      setStatus('Camera error: ' + e.message);
-      btnStart.disabled = false;
-      return;
-    }
-
-    const video  = document.getElementById('videoEl');
-    const canvas = document.getElementById('poseCanvas');
-    const wrap   = document.getElementById('canvasWrap');
-
-    video.srcObject = stream;
-    await new Promise(r => { video.onloadedmetadata = r; });
-    await video.play();
-
-    // Set canvas dimensions based on ACTUAL video feed
-    const W = video.videoWidth;
-    const H = video.videoHeight;
-    canvas.width  = W;
-    canvas.height = H;
-
-    // Responsive sizing
-    const maxW = Math.min(window.innerWidth - 40, 640);
-    const scale = maxW / W;
-    wrap.style.width  = Math.round(W * scale) + 'px';
-    wrap.style.height = Math.round(H * scale) + 'px';
-
-    if (!detector) {
-      setStatus('Loading AI Brain...');
-      await tf.ready();
-      detector = await poseDetection.createDetector(
-        poseDetection.SupportedModels.MoveNet,
-        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-      );
-    }
-
-    setStatus('<span>Tracker Active</span>');
-    document.getElementById('btnToggle').disabled = false;
-    document.getElementById('btnMirror').disabled = false;
-    document.getElementById('btnSwitch').disabled = false;
-    
-    document.getElementById('btnToggle').style.borderColor = showSkel ? '#1D9E75' : '#444';
-    document.getElementById('btnMirror').style.borderColor = mirrored ? '#1D9E75' : '#444';
-
-    loop(video, canvas);
-  }
-
-  async function loop(video, canvas) {
-    const ctx = canvas.getContext('2d');
-    const W   = canvas.width;
-    const H   = canvas.height;
-
-    // Draw background video
-    ctx.save();
-    if (mirrored) {
-      ctx.translate(W, 0);
-      ctx.scale(-1, 1);
-    }
-    ctx.drawImage(video, 0, 0, W, H);
-    ctx.restore();
-
-    let poses = [];
-    try { 
-      poses = await detector.estimatePoses(video); 
-    } catch(e) {
-      // Recovery logic if prediction fails temporarily
-    }
-
-    if (poses.length > 0) {
-      const pose  = poses[0];
-      const kpMap = {};
-      let detected = 0;
-
-      pose.keypoints.forEach(kp => {
-        kpMap[kp.name] = kp;
-        if (kp.score >= confVal) detected++;
-      });
-
-      if (showSkel) {
-        PAIRS.forEach(([a, b]) => {
-          const ka = kpMap[a], kb = kpMap[b];
-          if (!ka || !kb || ka.score < confVal || kb.score < confVal) return;
-
-          let ax = ka.x, bx = kb.x;
-          if (mirrored) { ax = W - ax; bx = W - bx; }
-
-          ctx.beginPath();
-          ctx.moveTo(ax, ka.y);
-          ctx.lineTo(bx, kb.y);
-          ctx.strokeStyle = COLORS[a];
-          ctx.globalAlpha = 0.6;
-          ctx.lineWidth   = 4;
-          ctx.lineCap     = 'round';
-          ctx.stroke();
-          ctx.globalAlpha = 1.0;
-        });
-      }
-
-      pose.keypoints.forEach(kp => {
-        if (kp.score < confVal) return;
-        const color = COLORS[kp.name] || '#fff';
-        let x = kp.x;
-        if (mirrored) x = W - x;
-
-        // Glow
-        ctx.beginPath();
-        ctx.arc(x, kp.y, 6, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = color;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        // Core
-        ctx.beginPath();
-        ctx.arc(x, kp.y, 3, 0, Math.PI * 2);
-        ctx.fillStyle = '#fff';
-        ctx.fill();
-      });
-    }
-
-    rafId = requestAnimationFrame(() => loop(video, canvas));
-  }
-
-  // Event Listeners
-  window.addEventListener('load', () => {
-    document.getElementById('btnStart').onclick = initCamera;
-    document.getElementById('btnToggle').onclick = toggleSkeleton;
-    document.getElementById('btnMirror').onclick = toggleMirror;
-    document.getElementById('btnSwitch').onclick = switchCamera;
-    
-    const slider = document.getElementById('confSlider');
-    slider.oninput = function() {
-      confVal = parseFloat(this.value);
-      document.getElementById('confOut').textContent = this.value;
-    };
-    
-    // Cleanup on window close
-    window.addEventListener('unload', () => {
-        if (stream) stream.getTracks().forEach(t => t.stop());
-    });
+function getBodyCenterX(kpMap) {
+  const keys = ['left_hip','right_hip','left_shoulder','right_shoulder'];
+  let sum = 0, count = 0;
+  keys.forEach(k => {
+    if (kpMap[k] && kpMap[k].score >= confVal) { sum += kpMap[k].x; count++; }
   });
+  return count > 0 ? sum / count : null;
+}
+
+function checkLineCrossing(bodyX) {
+  if (bodyX === null || prevBodyX === null) { prevBodyX = bodyX; return; }
+  const now = performance.now();
+
+  if (!startCrossed && startLineX !== null) {
+    const crossed = (prevBodyX < startLineX && bodyX >= startLineX) ||
+                    (prevBodyX > startLineX && bodyX <= startLineX);
+    if (crossed) {
+      startCrossed = true;
+      startTime = now;
+      setHint('Start line crossed! Running...');
+      updateTimingPanel();
+    }
+  }
+
+  if (startCrossed && !finishCrossed && finishLineX !== null) {
+    const crossed = (prevBodyX < finishLineX && bodyX >= finishLineX) ||
+                    (prevBodyX > finishLineX && bodyX <= finishLineX);
+    if (crossed) {
+      finishCrossed = true;
+      finishTime = now;
+      splitMs = finishTime - startTime;
+      setHint('Finished! Split time recorded.');
+      updateTimingPanel();
+    }
+  }
+
+  prevBodyX = bodyX;
+}
+
+function toggleSkeleton() {
+  showSkel = !showSkel;
+  document.getElementById('btnToggle').style.borderColor = showSkel ? '#1D9E75' : '#444';
+}
+
+async function switchCamera() {
+  currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+  if (rafId) cancelAnimationFrame(rafId);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  await initCamera();
+}
+
+function enableMarkerSetting() {
+  settingMarkers = true;
+  markerClickCount = 0;
+  startLineX = null; finishLineX = null;
+  document.getElementById('btnSetMarkers').textContent = 'Setting markers...';
+  document.getElementById('btnSetMarkers').style.borderColor = '#FFD93D';
+  setHint('Click the canvas to place the START line (green), then click again for the FINISH line (red).');
+}
+
+function onCanvasClick(e) {
+  if (!settingMarkers) return;
+  const canvas = document.getElementById('poseCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const clickX = (e.clientX - rect.left) * scaleX;
+
+  if (markerClickCount === 0) {
+    startLineX = clickX;
+    markerClickCount = 1;
+    setHint('Start line set (green). Now click to place the FINISH line (red).');
+  } else if (markerClickCount === 1) {
+    finishLineX = clickX;
+    markerClickCount = 2;
+    settingMarkers = false;
+    document.getElementById('btnSetMarkers').textContent = 'Set Markers';
+    document.getElementById('btnSetMarkers').style.borderColor = '#1D9E75';
+    setHint('Markers placed! Runner should cross the green line first, then the red line.');
+    updateTimingPanel();
+  }
+}
+
+async function initCamera() {
+  const btnStart = document.getElementById('btnStart');
+  const btnSwitch = document.getElementById('btnSwitch');
+  btnStart.disabled = true; btnSwitch.disabled = true;
+  setStatus(`Connecting to ${currentFacingMode === 'user' ? 'front' : 'back'} camera...`);
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+  } catch(e) {
+    setStatus('Camera error: ' + e.message);
+    btnStart.disabled = false;
+    return;
+  }
+
+  const video = document.getElementById('videoEl');
+  const canvas = document.getElementById('poseCanvas');
+  const wrap = document.getElementById('canvasWrap');
+
+  video.srcObject = stream;
+  await new Promise(r => { video.onloadedmetadata = r; });
+  await video.play();
+
+  const W = video.videoWidth, H = video.videoHeight;
+  canvas.width = W; canvas.height = H;
+
+  const maxW = Math.min(window.innerWidth - 40, 640);
+  const scale = maxW / W;
+  wrap.style.width = Math.round(W * scale) + 'px';
+  wrap.style.height = Math.round(H * scale) + 'px';
+
+  if (!detector) {
+    setStatus('Loading AI model...');
+    await tf.ready();
+    detector = await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+    );
+  }
+
+  setStatus('<span>Tracker Active</span>');
+  document.getElementById('btnToggle').disabled = false;
+  document.getElementById('btnSwitch').disabled = false;
+  document.getElementById('btnSetMarkers').disabled = false;
+  document.getElementById('btnReset').disabled = false;
+  document.getElementById('btnToggle').style.borderColor = showSkel ? '#1D9E75' : '#444';
+  canvas.addEventListener('click', onCanvasClick);
+  updateTimingPanel();
+  loop(video, canvas);
+}
+
+async function loop(video, canvas) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  ctx.drawImage(video, 0, 0, W, H);
+
+  // Draw marker lines
+  if (startLineX !== null) {
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(startLineX, 0); ctx.lineTo(startLineX, H);
+    ctx.strokeStyle = startCrossed ? 'rgba(0,255,136,0.5)' : '#00FF88';
+    ctx.lineWidth = 3; ctx.setLineDash([10, 6]); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#00FF88'; ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('START', startLineX + 5, 20);
+    ctx.restore();
+  }
+  if (finishLineX !== null) {
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(finishLineX, 0); ctx.lineTo(finishLineX, H);
+    ctx.strokeStyle = finishCrossed ? 'rgba(255,68,68,0.5)' : '#FF4444';
+    ctx.lineWidth = 3; ctx.setLineDash([10, 6]); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#FF4444'; ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('FINISH', finishLineX + 5, 20);
+    ctx.restore();
+  }
+
+  // Live split overlay while running
+  if (startCrossed && !finishCrossed) {
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(8, H - 36, 130, 28);
+    ctx.fillStyle = '#1D9E75'; ctx.font = 'bold 16px monospace';
+    ctx.fillText('⏱ ' + elapsed + 's', 16, H - 16);
+    ctx.restore();
+  }
+
+  let poses = [];
+  try { poses = await detector.estimatePoses(video); } catch(e) {}
+
+  if (poses.length > 0) {
+    const pose = poses[0];
+    const kpMap = {};
+    pose.keypoints.forEach(kp => { kpMap[kp.name] = kp; });
+
+    const bodyX = getBodyCenterX(kpMap);
+    checkLineCrossing(bodyX);
+
+    if (showSkel) {
+      PAIRS.forEach(([a, b]) => {
+        const ka = kpMap[a], kb = kpMap[b];
+        if (!ka || !kb || ka.score < confVal || kb.score < confVal) return;
+        ctx.beginPath(); ctx.moveTo(ka.x, ka.y); ctx.lineTo(kb.x, kb.y);
+        ctx.strokeStyle = COLORS[a]; ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
+        ctx.globalAlpha = 1.0;
+      });
+    }
+
+    pose.keypoints.forEach(kp => {
+      if (kp.score < confVal) return;
+      const color = COLORS[kp.name] || '#fff';
+      ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = color; ctx.fill();
+      ctx.beginPath(); ctx.arc(kp.x, kp.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+    });
+
+    // Draw body center dot
+    if (bodyX !== null) {
+      const bodyY = (kpMap['left_hip'] && kpMap['right_hip'])
+        ? (kpMap['left_hip'].y + kpMap['right_hip'].y) / 2
+        : H / 2;
+      ctx.beginPath(); ctx.arc(bodyX, bodyY, 10, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+
+  rafId = requestAnimationFrame(() => loop(video, canvas));
+}
+
+window.addEventListener('load', () => {
+  document.getElementById('btnStart').onclick = initCamera;
+  document.getElementById('btnToggle').onclick = toggleSkeleton;
+  document.getElementById('btnSwitch').onclick = switchCamera;
+  document.getElementById('btnSetMarkers').onclick = enableMarkerSetting;
+  document.getElementById('btnReset').onclick = resetTimer;
+  const slider = document.getElementById('confSlider');
+  slider.oninput = function() {
+    confVal = parseFloat(this.value);
+    document.getElementById('confOut').textContent = parseFloat(this.value).toFixed(2);
+  };
+  window.addEventListener('unload', () => { if (stream) stream.getTracks().forEach(t => t.stop()); });
+});
 </script>
 </body>
 </html>
