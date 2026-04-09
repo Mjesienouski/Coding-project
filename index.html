@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Runner Timing & Speed Tracker</title>
+  <title>Runner Timing &amp; Speed Tracker</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 1rem; overflow-x: hidden; }
@@ -19,7 +19,7 @@
     .btn-gray { background: #222; color: #ccc; border-color: #444; }
     .btn-blue { background: #4D96FF; color: white; }
     .btn-red { background: #c0392b; color: #fff; }
-    .btn-active { border-color: #1D9E75; box-shadow: 0 0 10px rgba(29, 158, 117, 0.3); }
+    .btn-active { border-color: #1D9E75 !important; box-shadow: 0 0 10px rgba(29, 158, 117, 0.3); }
     button:disabled { opacity: 0.2; cursor: default; }
 
     .setting-group { display: flex; background: #1a1a1a; padding: 4px; border-radius: 12px; border: 1px solid #333; gap: 4px; }
@@ -40,6 +40,7 @@
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; }
     .modal-content { background: #1a1a1a; padding: 24px; border-radius: 20px; border: 1px solid #333; width: 100%; max-width: 320px; text-align: center; }
     .modal input { width: 100%; padding: 14px; margin: 15px 0; background: #000; border: 1px solid #444; color: white; border-radius: 8px; text-align: center; font-size: 20px; }
+    #flipLabel { font-size: 10px; color: #888; margin-top: 4px; text-align: center; width: 100%; }
   </style>
 </head>
 <body>
@@ -53,17 +54,16 @@
 
 <div class="controls">
   <button class="btn-green" id="btnStart">Connect Camera</button>
-  
   <div class="setting-group">
     <button class="setting-btn active" id="modeVert">Vertical</button>
     <button class="setting-btn" id="modeHoriz">Horizontal</button>
   </div>
-
   <button class="btn-gray" id="btnFlipCamera" disabled>Flip Camera</button>
   <button class="btn-gray" id="btnMirror" disabled>Mirror Off</button>
   <button class="btn-blue" id="btnSetMarkers" disabled>Set Markers</button>
   <button class="btn-red" id="btnReset" disabled>Reset</button>
 </div>
+<div id="flipLabel"></div>
 
 <div class="status" id="statusLine">Awaiting camera access</div>
 
@@ -91,7 +91,7 @@
     <h3 style="font-size: 14px; text-transform: uppercase; color: #888;">Enter Track Distance</h3>
     <input type="number" id="distInput" value="10" step="1">
     <div style="font-size: 11px; color: #555; margin-bottom: 20px;">Distance in meters between Start and Finish.</div>
-    <button class="btn-green" style="width: 100%; padding: 15px;" id="btnSaveDist">Confirm & Start</button>
+    <button class="btn-green" style="width: 100%; padding: 15px;" id="btnSaveDist">Confirm &amp; Start</button>
   </div>
 </div>
 
@@ -101,9 +101,8 @@
 let detector=null, rafId=null, confVal=0.3;
 let stream=null, isMirrored=false, facingMode='environment';
 let settingMarkers=false, markerClickCount=0;
-let markerOrientation='vertical'; 
+let markerOrientation='vertical';
 let lineStartPos=null, lineFinishPos=null, trackDistance=10;
-
 let startTime=null, finishTime=null, isFinished=false, isRunning=false;
 let prevBodyCoord=null;
 
@@ -112,19 +111,15 @@ const canvas=document.getElementById('poseCanvas');
 const ctx=canvas.getContext('2d');
 
 function setStatus(msg){document.getElementById('statusLine').innerHTML=msg;}
+function updateFlipLabel(){
+  document.getElementById('flipLabel').textContent='Active Camera: ' + (facingMode==='environment' ? 'Rear (Environment)' : 'Front (User)');
+}
 
 function updateUI(){
   const statusEl = document.getElementById('tStatus');
-  if(isFinished) {
-    statusEl.textContent = "DONE";
-    statusEl.style.color = "#4D96FF";
-  } else if(isRunning) {
-    statusEl.textContent = "LIVE";
-    statusEl.style.color = "#1D9E75";
-  } else {
-    statusEl.textContent = lineStartPos !== null ? "READY" : "SET LINES";
-    statusEl.style.color = "#FFD93D";
-  }
+  if(isFinished) { statusEl.textContent = 'DONE'; statusEl.style.color = '#4D96FF'; }
+  else if(isRunning) { statusEl.textContent = 'LIVE'; statusEl.style.color = '#1D9E75'; }
+  else { statusEl.textContent = lineStartPos !== null ? 'READY' : 'SET LINES'; statusEl.style.color = '#FFD93D'; }
   
   const elapsed = (isRunning && startTime) ? (performance.now() - startTime) : (isFinished ? (finishTime - startTime) : 0);
   document.getElementById('tSplit').textContent = (elapsed/1000).toFixed(3) + 's';
@@ -139,34 +134,57 @@ function updateUI(){
 }
 
 async function initCamera(){
+  // Stop existing stream to free hardware
   if (stream) {
     stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+  // Stop animation loop briefly during transition
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
   }
 
-  setStatus('Accessing Camera...');
+  setStatus('Accessing camera...');
   try {
-    stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode: facingMode, width:{ideal:1280}, height:{ideal:720}},
-      audio:false
+    const constraints = {
+      video: {
+        facingMode: { ideal: facingMode },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    };
+    
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = stream;
+    
+    await new Promise(resolve => {
+      videoEl.onloadedmetadata = () => {
+        canvas.width = videoEl.videoWidth;
+        canvas.height = videoEl.videoHeight;
+        resolve();
+      };
     });
-    videoEl.srcObject=stream;
+    
     await videoEl.play();
     
-    canvas.width=videoEl.videoWidth;
-    canvas.height=videoEl.videoHeight;
-    
     if(!detector){
-      setStatus('Loading AI Engine...');
-      detector=await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+      setStatus('Loading AI engine...');
+      await tf.ready();
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
     }
     
-    setStatus('<span>Camera Active</span>');
-    document.getElementById('btnStart').style.display='none';
-    ['btnMirror','btnSetMarkers','btnReset','btnFlipCamera'].forEach(id=>document.getElementById(id).disabled=false);
+    setStatus('<span>Camera active</span>');
+    document.getElementById('btnStart').style.display = 'none';
+    ['btnMirror','btnSetMarkers','btnReset','btnFlipCamera'].forEach(id => {
+      document.getElementById(id).disabled = false;
+    });
     
-    if(!rafId) loop();
+    updateFlipLabel();
+    loop();
   } catch(e) {
-    setStatus('Camera Error: '+e.message);
+    setStatus('Camera access denied or error: ' + e.message);
   }
 }
 
@@ -176,9 +194,10 @@ function getBodyCoord(poses){
   const relevant = kp.filter(k => k.score > confVal && ['left_hip','right_hip','left_shoulder','right_shoulder'].includes(k.name));
   if(relevant.length === 0) return null;
   
-  const sumX = relevant.reduce((s,k)=>s+k.x, 0);
-  const sumY = relevant.reduce((s,k)=>s+k.y, 0);
-  return { x: sumX/relevant.length, y: sumY/relevant.length };
+  return { 
+    x: relevant.reduce((s,k)=>s+k.x, 0) / relevant.length, 
+    y: relevant.reduce((s,k)=>s+k.y, 0) / relevant.length 
+  };
 }
 
 function loop(){
@@ -187,33 +206,35 @@ function loop(){
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(videoEl,0,0);
+  ctx.drawImage(videoEl, 0, 0);
   ctx.restore();
   
   if(lineStartPos !== null) drawMarker(lineStartPos, '#00FF88', 'START');
   if(lineFinishPos !== null) drawMarker(lineFinishPos, '#FF4444', 'FINISH');
 
   detector.estimatePoses(videoEl).then(poses => {
-    let coord = getBodyCoord(poses);
+    const coord = getBodyCoord(poses);
     if(coord){
-      // Adjust tracking coordinates for mirror logic so logic remains consistent with screen visuals
+      // Logic coordination: mirror affects where the user *thinks* they are relative to the canvas
       const trackX = isMirrored ? (canvas.width - coord.x) : coord.x;
       const trackY = coord.y;
 
-      // Draw tracking dot (adjusted for view)
-      ctx.beginPath();ctx.arc(trackX, trackY, 10, 0, Math.PI*2);
-      ctx.fillStyle='rgba(255,255,255,0.7)';ctx.fill();
+      // Draw tracking indicator
+      ctx.beginPath(); ctx.arc(trackX, trackY, 10, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fill();
 
       const currentVal = markerOrientation === 'vertical' ? trackX : trackY;
       
       if(lineStartPos !== null && lineFinishPos !== null && !isFinished){
         if(prevBodyCoord !== null){
           if(!isRunning){
+            // Start Detection
             if((prevBodyCoord < lineStartPos && currentVal >= lineStartPos) || (prevBodyCoord > lineStartPos && currentVal <= lineStartPos)){
               startTime = performance.now();
               isRunning = true;
             }
           } else {
+            // Finish Detection
             if((prevBodyCoord < lineFinishPos && currentVal >= lineFinishPos) || (prevBodyCoord > lineFinishPos && currentVal <= lineFinishPos)){
               finishTime = performance.now();
               isRunning = false;
@@ -253,10 +274,10 @@ function drawMarker(pos, color, label){
 document.getElementById('btnStart').onclick = initCamera;
 
 document.getElementById('btnFlipCamera').onclick = async function() {
-  facingMode = (facingMode === 'user') ? 'environment' : 'user';
-  
-  // Auto-mirror when switching to selfie camera
+  facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+  // Standard convention: mirror front camera, don't mirror back camera
   isMirrored = (facingMode === 'user');
+  
   const mirrorBtn = document.getElementById('btnMirror');
   mirrorBtn.textContent = isMirrored ? "Mirror On" : "Mirror Off";
   mirrorBtn.classList.toggle('btn-active', isMirrored);
@@ -271,8 +292,8 @@ document.getElementById('btnMirror').onclick = function() {
 };
 
 document.getElementById('btnReset').onclick = () => {
-  startTime=null; finishTime=null; isRunning=false; isFinished=false;
-  prevBodyCoord=null;
+  startTime = null; finishTime = null; isRunning = false; isFinished = false;
+  prevBodyCoord = null;
   updateUI();
 };
 
@@ -281,14 +302,8 @@ document.getElementById('btnSetMarkers').onclick = () => {
   markerClickCount = 0;
   lineStartPos = null; lineFinishPos = null;
   document.getElementById('btnSetMarkers').classList.add('btn-active');
-  setStatus(`Tap to place START line (${markerOrientation})`);
+  setStatus(`Tap on the camera view to place START line (${markerOrientation})`);
 };
-
-canvas.addEventListener('mousedown', handleMarkerInput);
-canvas.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  handleMarkerInput(e.touches[0]);
-});
 
 function handleMarkerInput(e) {
   if(!settingMarkers) return;
@@ -303,7 +318,7 @@ function handleMarkerInput(e) {
   if(markerClickCount === 0){
     lineStartPos = val;
     markerClickCount = 1;
-    setStatus("Now tap to place FINISH line");
+    setStatus("Now tap to place the FINISH line");
   } else {
     lineFinishPos = val;
     settingMarkers = false;
@@ -313,10 +328,16 @@ function handleMarkerInput(e) {
   }
 }
 
+canvas.addEventListener('mousedown', handleMarkerInput);
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  handleMarkerInput(e.touches[0]);
+});
+
 document.getElementById('btnSaveDist').onclick = () => {
   trackDistance = parseFloat(document.getElementById('distInput').value) || 10;
   document.getElementById('distModal').style.display = 'none';
-  setStatus("<span>System Ready</span> - Cross Start line");
+  setStatus("<span>System Ready</span> — Cross the Start line to begin timing");
   updateUI();
 };
 
@@ -335,6 +356,11 @@ document.getElementById('modeHoriz').onclick = function() {
   lineStartPos = null; lineFinishPos = null;
   updateUI();
 };
+
+// Cleanup on close
+window.addEventListener('unload', () => {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+});
 </script>
 </body>
 </html>
