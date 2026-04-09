@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Runner Timing &amp; Speed Tracker</title>
+  <title>Runner Pro Tracker - MediaPipe</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 1rem; overflow-x: hidden; }
@@ -95,169 +95,183 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
+<!-- Load MediaPipe Pose -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
 <script>
-let detector=null, rafId=null, confVal=0.3;
-let stream=null, isMirrored=false, facingMode='environment';
-let settingMarkers=false, markerClickCount=0;
-let markerOrientation='vertical';
-let lineStartPos=null, lineFinishPos=null, trackDistance=10;
-let startTime=null, finishTime=null, isFinished=false, isRunning=false;
-let prevBodyCoord=null;
+let pose = null;
+let camera = null;
+let stream = null;
+let isMirrored = false;
+let facingMode = 'environment';
+let settingMarkers = false;
+let markerClickCount = 0;
+let markerOrientation = 'vertical';
+let lineStartPos = null;
+let lineFinishPos = null;
+let trackDistance = 10;
+let startTime = null;
+let finishTime = null;
+let isFinished = false;
+let isRunning = false;
+let prevBodyCoord = null;
 
-const videoEl=document.getElementById('videoEl');
-const canvas=document.getElementById('poseCanvas');
-const ctx=canvas.getContext('2d');
+const videoEl = document.getElementById('videoEl');
+const canvas = document.getElementById('poseCanvas');
+const ctx = canvas.getContext('2d');
 
-function setStatus(msg){document.getElementById('statusLine').innerHTML=msg;}
-function updateFlipLabel(){
-  document.getElementById('flipLabel').textContent='Active Camera: ' + (facingMode==='environment' ? 'Rear (Environment)' : 'Front (User)');
+function setStatus(msg) { document.getElementById('statusLine').innerHTML = msg; }
+
+function updateFlipLabel() {
+  document.getElementById('flipLabel').textContent = 'Camera: ' + (facingMode === 'environment' ? 'Rear' : 'Front');
 }
 
-function updateUI(){
+function updateUI() {
   const statusEl = document.getElementById('tStatus');
-  if(isFinished) { statusEl.textContent = 'DONE'; statusEl.style.color = '#4D96FF'; }
-  else if(isRunning) { statusEl.textContent = 'LIVE'; statusEl.style.color = '#1D9E75'; }
+  if (isFinished) { statusEl.textContent = 'DONE'; statusEl.style.color = '#4D96FF'; }
+  else if (isRunning) { statusEl.textContent = 'LIVE'; statusEl.style.color = '#1D9E75'; }
   else { statusEl.textContent = lineStartPos !== null ? 'READY' : 'SET LINES'; statusEl.style.color = '#FFD93D'; }
   
   const elapsed = (isRunning && startTime) ? (performance.now() - startTime) : (isFinished ? (finishTime - startTime) : 0);
-  document.getElementById('tSplit').textContent = (elapsed/1000).toFixed(3) + 's';
+  document.getElementById('tSplit').textContent = (elapsed / 1000).toFixed(3) + 's';
   document.getElementById('tDist').textContent = trackDistance + ' m';
   
-  if(isFinished && elapsed > 0) {
-    const speed = trackDistance / (elapsed / 1000);
-    document.getElementById('tSpeed').textContent = speed.toFixed(2) + ' m/s';
+  if (isFinished && elapsed > 0) {
+    document.getElementById('tSpeed').textContent = (trackDistance / (elapsed / 1000)).toFixed(2) + ' m/s';
   } else {
     document.getElementById('tSpeed').textContent = '--.-- m/s';
   }
 }
 
-async function initCamera(){
-  // Stop existing stream to free hardware
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
-  // Stop animation loop briefly during transition
-  if (rafId) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
-  }
+async function initMediaPipe() {
+  setStatus('Loading MediaPipe Pose Engine...');
+  
+  pose = new Pose({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
 
-  setStatus('Accessing camera...');
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: false,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+
+  pose.onResults(onResults);
+  
+  await initCamera();
+}
+
+async function initCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  
+  setStatus('Starting Camera...');
+  const constraints = {
+    video: { facingMode: { ideal: facingMode }, width: 640, height: 480 }
+  };
+  
   try {
-    const constraints = {
-      video: {
-        facingMode: { ideal: facingMode },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
-    };
-    
     stream = await navigator.mediaDevices.getUserMedia(constraints);
     videoEl.srcObject = stream;
     
-    await new Promise(resolve => {
-      videoEl.onloadedmetadata = () => {
-        canvas.width = videoEl.videoWidth;
-        canvas.height = videoEl.videoHeight;
-        resolve();
-      };
-    });
+    videoEl.onloadedmetadata = () => {
+      canvas.width = videoEl.videoWidth;
+      canvas.height = videoEl.videoHeight;
+      startProcessing();
+    };
     
-    await videoEl.play();
-    
-    if(!detector){
-      setStatus('Loading AI engine...');
-      await tf.ready();
-      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
-    }
-    
-    setStatus('<span>Camera active</span>');
     document.getElementById('btnStart').style.display = 'none';
-    ['btnMirror','btnSetMarkers','btnReset','btnFlipCamera'].forEach(id => {
+    ['btnMirror', 'btnSetMarkers', 'btnReset', 'btnFlipCamera'].forEach(id => {
       document.getElementById(id).disabled = false;
     });
-    
     updateFlipLabel();
-    loop();
-  } catch(e) {
-    setStatus('Camera access denied or error: ' + e.message);
+  } catch (err) {
+    setStatus('Error: ' + err.message);
   }
 }
 
-function getBodyCoord(poses){
-  if(!poses || poses.length === 0) return null;
-  const kp = poses[0].keypoints;
-  const relevant = kp.filter(k => k.score > confVal && ['left_hip','right_hip','left_shoulder','right_shoulder'].includes(k.name));
-  if(relevant.length === 0) return null;
-  
-  return { 
-    x: relevant.reduce((s,k)=>s+k.x, 0) / relevant.length, 
-    y: relevant.reduce((s,k)=>s+k.y, 0) / relevant.length 
+function startProcessing() {
+  const frameLoop = async () => {
+    if (videoEl.paused || videoEl.ended) return;
+    await pose.send({ image: videoEl });
+    requestAnimationFrame(frameLoop);
   };
+  frameLoop();
 }
 
-function loop(){
+function onResults(results) {
   ctx.save();
-  if(isMirrored) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  if (isMirrored) {
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(videoEl, 0, 0);
-  ctx.restore();
   
-  if(lineStartPos !== null) drawMarker(lineStartPos, '#00FF88', 'START');
-  if(lineFinishPos !== null) drawMarker(lineFinishPos, '#FF4444', 'FINISH');
+  ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
 
-  detector.estimatePoses(videoEl).then(poses => {
-    const coord = getBodyCoord(poses);
-    if(coord){
-      // Logic coordination: mirror affects where the user *thinks* they are relative to the canvas
-      const trackX = isMirrored ? (canvas.width - coord.x) : coord.x;
-      const trackY = coord.y;
+  if (lineStartPos !== null) drawMarker(lineStartPos, '#00FF88', 'START');
+  if (lineFinishPos !== null) drawMarker(lineFinishPos, '#FF4444', 'FINISH');
 
-      // Draw tracking indicator
-      ctx.beginPath(); ctx.arc(trackX, trackY, 10, 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fill();
-
-      const currentVal = markerOrientation === 'vertical' ? trackX : trackY;
+  if (results.poseLandmarks) {
+    // MediaPipe uses normalized coordinates (0-1). We convert them to pixel values.
+    // We use the midpoint between hips for stable center-of-mass tracking
+    const leftHip = results.poseLandmarks[23];
+    const rightHip = results.poseLandmarks[24];
+    
+    if (leftHip.visibility > 0.5 && rightHip.visibility > 0.5) {
+      const centerX = ((leftHip.x + rightHip.x) / 2) * canvas.width;
+      const centerY = ((leftHip.y + rightHip.y) / 2) * canvas.height;
       
-      if(lineStartPos !== null && lineFinishPos !== null && !isFinished){
-        if(prevBodyCoord !== null){
-          if(!isRunning){
-            // Start Detection
-            if((prevBodyCoord < lineStartPos && currentVal >= lineStartPos) || (prevBodyCoord > lineStartPos && currentVal <= lineStartPos)){
-              startTime = performance.now();
-              isRunning = true;
-            }
-          } else {
-            // Finish Detection
-            if((prevBodyCoord < lineFinishPos && currentVal >= lineFinishPos) || (prevBodyCoord > lineFinishPos && currentVal <= lineFinishPos)){
-              finishTime = performance.now();
-              isRunning = false;
-              isFinished = true;
-            }
+      // If mirrored, the visual coordinate needs to be flipped for drawing
+      const drawX = isMirrored ? (canvas.width - centerX) : centerX;
+      
+      ctx.beginPath();
+      ctx.arc(drawX, centerY, 12, 0, Math.PI * 2);
+      ctx.fillStyle = '#4D96FF';
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Trigger Logic
+      const currentVal = markerOrientation === 'vertical' ? centerX : centerY;
+      
+      if (lineStartPos !== null && lineFinishPos !== null && !isFinished) {
+        if (prevBodyCoord !== null) {
+          // Detect crossing lines
+          const crossedStart = (prevBodyCoord < lineStartPos && currentVal >= lineStartPos) || 
+                               (prevBodyCoord > lineStartPos && currentVal <= lineStartPos);
+          const crossedFinish = (prevBodyCoord < lineFinishPos && currentVal >= lineFinishPos) || 
+                                (prevBodyCoord > lineFinishPos && currentVal <= lineFinishPos);
+                                
+          if (!isRunning && crossedStart) {
+            startTime = performance.now();
+            isRunning = true;
+          } else if (isRunning && crossedFinish) {
+            finishTime = performance.now();
+            isRunning = false;
+            isFinished = true;
           }
         }
         prevBodyCoord = currentVal;
       }
     }
-    
-    if(isRunning || isFinished) updateUI();
-    rafId = requestAnimationFrame(loop);
-  });
+  }
+  
+  if (isRunning || isFinished) updateUI();
 }
 
-function drawMarker(pos, color, label){
+function drawMarker(pos, color, label) {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = 6;
   ctx.setLineDash([15, 10]);
   ctx.beginPath();
-  if(markerOrientation === 'vertical'){
+  if (markerOrientation === 'vertical') {
     ctx.moveTo(pos, 0); ctx.lineTo(pos, canvas.height);
   } else {
     ctx.moveTo(0, pos); ctx.lineTo(canvas.width, pos);
@@ -265,64 +279,52 @@ function drawMarker(pos, color, label){
   ctx.stroke();
   
   ctx.fillStyle = color;
-  ctx.font = "bold 24px sans-serif";
-  if(markerOrientation === 'vertical') ctx.fillText(label, pos+10, 40);
-  else ctx.fillText(label, 15, pos-15);
+  ctx.font = "bold 20px sans-serif";
+  if (markerOrientation === 'vertical') ctx.fillText(label, pos + 10, 40);
+  else ctx.fillText(label, 15, pos - 15);
   ctx.restore();
 }
 
-document.getElementById('btnStart').onclick = initCamera;
+document.getElementById('btnStart').onclick = initMediaPipe;
 
-document.getElementById('btnFlipCamera').onclick = async function() {
-  facingMode = (facingMode === 'environment') ? 'user' : 'environment';
-  // Standard convention: mirror front camera, don't mirror back camera
+document.getElementById('btnFlipCamera').onclick = async () => {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
   isMirrored = (facingMode === 'user');
-  
-  const mirrorBtn = document.getElementById('btnMirror');
-  mirrorBtn.textContent = isMirrored ? "Mirror On" : "Mirror Off";
-  mirrorBtn.classList.toggle('btn-active', isMirrored);
-  
+  document.getElementById('btnMirror').textContent = isMirrored ? 'Mirror On' : 'Mirror Off';
+  document.getElementById('btnMirror').classList.toggle('btn-active', isMirrored);
   await initCamera();
 };
 
 document.getElementById('btnMirror').onclick = function() {
   isMirrored = !isMirrored;
-  this.textContent = isMirrored ? "Mirror On" : "Mirror Off";
+  this.textContent = isMirrored ? 'Mirror On' : 'Mirror Off';
   this.classList.toggle('btn-active', isMirrored);
 };
 
 document.getElementById('btnReset').onclick = () => {
   startTime = null; finishTime = null; isRunning = false; isFinished = false;
-  prevBodyCoord = null;
-  updateUI();
+  prevBodyCoord = null; updateUI();
 };
 
 document.getElementById('btnSetMarkers').onclick = () => {
-  settingMarkers = true;
-  markerClickCount = 0;
+  settingMarkers = true; markerClickCount = 0;
   lineStartPos = null; lineFinishPos = null;
   document.getElementById('btnSetMarkers').classList.add('btn-active');
-  setStatus(`Tap on the camera view to place START line (${markerOrientation})`);
+  setStatus(`Tap to place START line (${markerOrientation})`);
 };
 
 function handleMarkerInput(e) {
-  if(!settingMarkers) return;
+  if (!settingMarkers) return;
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  const x = (e.clientX - rect.left) * scaleX;
-  const y = (e.clientY - rect.top) * scaleY;
-  
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
   const val = markerOrientation === 'vertical' ? x : y;
 
-  if(markerClickCount === 0){
-    lineStartPos = val;
-    markerClickCount = 1;
-    setStatus("Now tap to place the FINISH line");
+  if (markerClickCount === 0) {
+    lineStartPos = val; markerClickCount = 1;
+    setStatus("Tap to place FINISH line");
   } else {
-    lineFinishPos = val;
-    settingMarkers = false;
-    markerClickCount = 2;
+    lineFinishPos = val; settingMarkers = false; markerClickCount = 2;
     document.getElementById('btnSetMarkers').classList.remove('btn-active');
     document.getElementById('distModal').style.display = 'flex';
   }
@@ -337,30 +339,20 @@ canvas.addEventListener('touchstart', (e) => {
 document.getElementById('btnSaveDist').onclick = () => {
   trackDistance = parseFloat(document.getElementById('distInput').value) || 10;
   document.getElementById('distModal').style.display = 'none';
-  setStatus("<span>System Ready</span> — Cross the Start line to begin timing");
+  setStatus("<span>System Ready</span> — Cross Start line to begin");
   updateUI();
 };
 
 document.getElementById('modeVert').onclick = function() {
-  markerOrientation = 'vertical';
-  this.classList.add('active');
+  markerOrientation = 'vertical'; this.classList.add('active');
   document.getElementById('modeHoriz').classList.remove('active');
   lineStartPos = null; lineFinishPos = null;
-  updateUI();
 };
-
 document.getElementById('modeHoriz').onclick = function() {
-  markerOrientation = 'horizontal';
-  this.classList.add('active');
+  markerOrientation = 'horizontal'; this.classList.add('active');
   document.getElementById('modeVert').classList.remove('active');
   lineStartPos = null; lineFinishPos = null;
-  updateUI();
 };
-
-// Cleanup on close
-window.addEventListener('unload', () => {
-  if (stream) stream.getTracks().forEach(t => t.stop());
-});
 </script>
 </body>
 </html>
