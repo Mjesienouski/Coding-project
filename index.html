@@ -6,11 +6,11 @@
   <title>Runner Timing Tracker</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 1rem; }
+    body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 1rem; transition: background 0.3s; }
     h1 { font-size: 14px; font-weight: 600; color: #888; margin-bottom: 1rem; letter-spacing: 1.5px; text-transform: uppercase; }
-    .canvas-wrap { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid #333; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 100%; cursor: crosshair; }
+    .canvas-wrap { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid #333; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 100%; cursor: crosshair; transition: width 0.3s, height 0.3s; }
     #videoEl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
-    #poseCanvas { display: block; max-width: 100%; height: auto; }
+    #poseCanvas { display: block; width: 100%; height: 100%; }
     .controls { display: flex; align-items: center; gap: 8px; margin-top: 1rem; flex-wrap: wrap; justify-content: center; max-width: 700px; }
     button { padding: 9px 16px; border: none; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .btn-green { background: #1D9E75; color: #fff; }
@@ -79,7 +79,7 @@
 </div>
 <div class="legend">
   <div class="leg-item"><div class="leg-dot" style="background:#FF6B6B;"></div>Head</div>
-  <div class="leg-item"><div class="leg-dot" style="background:#FFD93D;"></div>Torso</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FFD93D;"></div>Chest (Trigger)</div>
   <div class="leg-item"><div class="leg-dot" style="background:#6BCB77;"></div>Arms</div>
   <div class="leg-item"><div class="leg-dot" style="background:#4D96FF;"></div>Hips</div>
   <div class="leg-item"><div class="leg-dot" style="background:#FF922B;"></div>Legs</div>
@@ -162,8 +162,9 @@ function resetTimer() {
   setHint('Timer reset. Runner can go again.');
 }
 
-function getBodyCenterX(kpMap) {
-  const keys = ['left_hip','right_hip','left_shoulder','right_shoulder'];
+function getChestCenterX(kpMap) {
+  // We use the center point between shoulders as the "Chest Line"
+  const keys = ['left_shoulder', 'right_shoulder'];
   let sum = 0, count = 0;
   keys.forEach(k => {
     if (kpMap[k] && kpMap[k].score >= confVal) { sum += kpMap[k].x; count++; }
@@ -222,7 +223,6 @@ function updateMirrorBtn() {
 
 async function switchCamera() {
   currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-  // Standard intuitive behavior: front camera is mirrored by default, rear is not
   isMirrored = (currentFacingMode === 'user');
   updateMirrorBtn();
   
@@ -247,7 +247,6 @@ function onCanvasClick(e) {
   const scaleX = canvas.width / rect.width;
   let clickX = (e.clientX - rect.left) * scaleX;
 
-  // Remap click coordinates if visually mirrored
   if (isMirrored) {
     clickX = canvas.width - clickX;
   }
@@ -255,16 +254,37 @@ function onCanvasClick(e) {
   if (markerClickCount === 0) {
     startLineX = clickX;
     markerClickCount = 1;
-    setHint('Start line set (green). Now click to place the FINISH line (red).');
+    setHint('Start line set. Click to place FINISH.');
   } else if (markerClickCount === 1) {
     finishLineX = clickX;
     markerClickCount = 2;
     settingMarkers = false;
     document.getElementById('btnSetMarkers').textContent = 'Set Markers';
     document.getElementById('btnSetMarkers').classList.remove('btn-active');
-    setHint('Markers placed! Tracker will fire when the torso crosses these lines.');
+    setHint('Markers ready! Only chest line crossing will trigger timer.');
     updateTimingPanel();
   }
+}
+
+async function updateCanvasDimensions() {
+  const video = document.getElementById('videoEl');
+  const canvas = document.getElementById('poseCanvas');
+  const wrap = document.getElementById('canvasWrap');
+  if (!video.videoWidth) return;
+
+  const W = video.videoWidth;
+  const H = video.videoHeight;
+  canvas.width = W;
+  canvas.height = H;
+
+  // Determine ideal display width based on viewport
+  const isLandscape = window.innerWidth > window.innerHeight;
+  const maxW = isLandscape ? window.innerWidth * 0.8 : window.innerWidth - 40;
+  const maxH = window.innerHeight * 0.6;
+  
+  const scale = Math.min(maxW / W, maxH / H);
+  wrap.style.width = Math.round(W * scale) + 'px';
+  wrap.style.height = Math.round(H * scale) + 'px';
 }
 
 async function initCamera() {
@@ -276,7 +296,7 @@ async function initCamera() {
 
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+      video: { facingMode: currentFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     });
   } catch(e) {
@@ -286,20 +306,11 @@ async function initCamera() {
   }
 
   const video = document.getElementById('videoEl');
-  const canvas = document.getElementById('poseCanvas');
-  const wrap = document.getElementById('canvasWrap');
-
   video.srcObject = stream;
   await new Promise(r => { video.onloadedmetadata = r; });
   await video.play();
 
-  const W = video.videoWidth, H = video.videoHeight;
-  canvas.width = W; canvas.height = H;
-
-  const maxW = Math.min(window.innerWidth - 40, 640);
-  const scale = maxW / W;
-  wrap.style.width = Math.round(W * scale) + 'px';
-  wrap.style.height = Math.round(H * scale) + 'px';
+  await updateCanvasDimensions();
 
   if (!detector) {
     setStatus('Loading AI model...');
@@ -320,6 +331,7 @@ async function initCamera() {
   if (showSkel) document.getElementById('btnToggle').classList.add('btn-active');
   updateMirrorBtn();
 
+  const canvas = document.getElementById('poseCanvas');
   canvas.removeEventListener('click', onCanvasClick);
   canvas.addEventListener('click', onCanvasClick);
   updateTimingPanel();
@@ -331,14 +343,11 @@ async function loop(video, canvas) {
   const W = canvas.width, H = canvas.height;
 
   ctx.save();
-  
-  // Mirror transformation
   if (isMirrored) {
     ctx.translate(W, 0);
     ctx.scale(-1, 1);
   }
 
-  // Draw actual camera frame
   ctx.drawImage(video, 0, 0, W, H);
 
   // Markers
@@ -346,16 +355,15 @@ async function loop(video, canvas) {
     ctx.save();
     ctx.beginPath(); ctx.moveTo(startLineX, 0); ctx.lineTo(startLineX, H);
     ctx.strokeStyle = startCrossed ? 'rgba(0,255,136,0.5)' : '#00FF88';
-    ctx.lineWidth = 3; ctx.setLineDash([10, 6]); ctx.stroke();
+    ctx.lineWidth = 4; ctx.setLineDash([10, 6]); ctx.stroke();
     
-    // Un-mirror text so it's readable
     if (isMirrored) {
       ctx.scale(-1, 1);
-      ctx.fillStyle = '#00FF88'; ctx.font = 'bold 13px sans-serif';
-      ctx.fillText('START', -(startLineX - 5), 20);
+      ctx.fillStyle = '#00FF88'; ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('START', -(startLineX - 8), 24);
     } else {
-      ctx.fillStyle = '#00FF88'; ctx.font = 'bold 13px sans-serif';
-      ctx.fillText('START', startLineX + 5, 20);
+      ctx.fillStyle = '#00FF88'; ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('START', startLineX + 8, 24);
     }
     ctx.restore();
   }
@@ -363,16 +371,16 @@ async function loop(video, canvas) {
   if (finishLineX !== null) {
     ctx.save();
     ctx.beginPath(); ctx.moveTo(finishLineX, 0); ctx.lineTo(finishLineX, H);
-    ctx.strokeStyle = finishCrossed ? 'rgba(255,68,68,0.5)' : '#FF4444';
-    ctx.lineWidth = 3; ctx.setLineDash([10, 6]); ctx.stroke();
+    ctx.strokeStyle = finishCrossed ? 'rgba(255,40,40,0.5)' : '#FF4444';
+    ctx.lineWidth = 4; ctx.setLineDash([10, 6]); ctx.stroke();
     
     if (isMirrored) {
       ctx.scale(-1, 1);
-      ctx.fillStyle = '#FF4444'; ctx.font = 'bold 13px sans-serif';
-      ctx.fillText('FINISH', -(finishLineX - 5), 20);
+      ctx.fillStyle = '#FF4444'; ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('FINISH', -(finishLineX - 8), 24);
     } else {
-      ctx.fillStyle = '#FF4444'; ctx.font = 'bold 13px sans-serif';
-      ctx.fillText('FINISH', finishLineX + 5, 20);
+      ctx.fillStyle = '#FF4444'; ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('FINISH', finishLineX + 8, 24);
     }
     ctx.restore();
   }
@@ -385,8 +393,8 @@ async function loop(video, canvas) {
     const kpMap = {};
     pose.keypoints.forEach(kp => { kpMap[kp.name] = kp; });
 
-    const bodyX = getBodyCenterX(kpMap);
-    checkLineCrossing(bodyX);
+    const chestX = getChestCenterX(kpMap);
+    checkLineCrossing(chestX);
 
     if (showSkel) {
       PAIRS.forEach(([a, b]) => {
@@ -394,39 +402,38 @@ async function loop(video, canvas) {
         if (!ka || !kb || ka.score < confVal || kb.score < confVal) return;
         ctx.beginPath(); ctx.moveTo(ka.x, ka.y); ctx.lineTo(kb.x, kb.y);
         ctx.strokeStyle = COLORS[a]; ctx.globalAlpha = 0.6;
-        ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
+        ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
         ctx.globalAlpha = 1.0;
       });
     }
 
     pose.keypoints.forEach(kp => {
       if (kp.score < confVal) return;
-      const color = COLORS[kp.name] || '#fff';
       ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, Math.PI * 2);
-      ctx.fillStyle = color; ctx.fill();
+      ctx.fillStyle = COLORS[kp.name] || '#fff'; ctx.fill();
       ctx.beginPath(); ctx.arc(kp.x, kp.y, 3, 0, Math.PI * 2);
       ctx.fillStyle = '#fff'; ctx.fill();
     });
 
-    if (bodyX !== null) {
-      const bodyY = (kpMap['left_hip'] && kpMap['right_hip'])
-        ? (kpMap['left_hip'].y + kpMap['right_hip'].y) / 2
-        : H / 2;
-      ctx.beginPath(); ctx.arc(bodyX, bodyY, 10, 0, Math.PI * 2);
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    if (chestX !== null) {
+      // Highlight the chest trigger point specifically
+      const chestY = (kpMap['left_shoulder'].y + kpMap['right_shoulder'].y) / 2;
+      ctx.beginPath(); ctx.arc(chestX, chestY, 12, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.beginPath(); ctx.arc(chestX, chestY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFD93D'; ctx.fill();
     }
   }
 
-  ctx.restore(); // Restore from mirror transform
+  ctx.restore();
 
-  // Timer Overlay (always upright/legible)
   if (startCrossed && !finishCrossed) {
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(8, H - 36, 130, 28);
-    ctx.fillStyle = '#1D9E75'; ctx.font = 'bold 16px monospace';
-    ctx.fillText('⏱ ' + elapsed + 's', 16, H - 16);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(10, H - 40, 140, 32);
+    ctx.fillStyle = '#1D9E75'; ctx.font = 'bold 18px monospace';
+    ctx.fillText('⏱ ' + elapsed + 's', 20, H - 18);
     ctx.restore();
   }
 
@@ -440,11 +447,14 @@ window.addEventListener('load', () => {
   document.getElementById('btnMirror').onclick = toggleMirror;
   document.getElementById('btnSetMarkers').onclick = enableMarkerSetting;
   document.getElementById('btnReset').onclick = resetTimer;
+  
   const slider = document.getElementById('confSlider');
   slider.oninput = function() {
     confVal = parseFloat(this.value);
-    document.getElementById('confOut').textContent = parseFloat(this.value).toFixed(2);
+    document.getElementById('confOut').textContent = confVal.toFixed(2);
   };
+
+  window.addEventListener('resize', updateCanvasDimensions);
   window.addEventListener('unload', () => { if (stream) stream.getTracks().forEach(t => t.stop()); });
 });
 </script>
