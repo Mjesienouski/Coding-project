@@ -8,7 +8,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0a0a0a; color: #eee; font-family: -apple-system, system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 1rem; transition: background 0.3s; }
     h1 { font-size: 14px; font-weight: 600; color: #888; margin-bottom: 1rem; letter-spacing: 1.5px; text-transform: uppercase; }
-    .canvas-wrap { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid #333; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 100%; cursor: crosshair; transition: width 0.3s, height 0.3s; }
+    .canvas-wrap { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid #333; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 100%; cursor: crosshair; }
     #videoEl { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
     #poseCanvas { display: block; width: 100%; height: 100%; }
     .controls { display: flex; align-items: center; gap: 8px; margin-top: 1rem; flex-wrap: wrap; justify-content: center; max-width: 700px; }
@@ -274,17 +274,29 @@ async function updateCanvasDimensions() {
 
   const W = video.videoWidth;
   const H = video.videoHeight;
+  
+  // Set internal resolution
   canvas.width = W;
   canvas.height = H;
 
-  // Determine ideal display width based on viewport
-  const isLandscape = window.innerWidth > window.innerHeight;
-  const maxW = isLandscape ? window.innerWidth * 0.8 : window.innerWidth - 40;
-  const maxH = window.innerHeight * 0.6;
+  // Recalculate display size based on screen
+  const containerWidth = window.innerWidth - 40;
+  const containerHeight = window.innerHeight * 0.6;
   
-  const scale = Math.min(maxW / W, maxH / H);
-  wrap.style.width = Math.round(W * scale) + 'px';
-  wrap.style.height = Math.round(H * scale) + 'px';
+  const videoAspect = W / H;
+  const containerAspect = containerWidth / containerHeight;
+  
+  let displayW, displayH;
+  if (videoAspect > containerAspect) {
+    displayW = containerWidth;
+    displayH = containerWidth / videoAspect;
+  } else {
+    displayH = containerHeight;
+    displayW = containerHeight * videoAspect;
+  }
+  
+  wrap.style.width = Math.round(displayW) + 'px';
+  wrap.style.height = Math.round(displayH) + 'px';
 }
 
 async function initCamera() {
@@ -342,6 +354,7 @@ async function loop(video, canvas) {
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
 
+  // Clear and prep
   ctx.save();
   if (isMirrored) {
     ctx.translate(W, 0);
@@ -350,21 +363,20 @@ async function loop(video, canvas) {
 
   ctx.drawImage(video, 0, 0, W, H);
 
-  // Markers
+  // Markers are vertical lines going from top to bottom (0 to H)
   if (startLineX !== null) {
     ctx.save();
     ctx.beginPath(); ctx.moveTo(startLineX, 0); ctx.lineTo(startLineX, H);
     ctx.strokeStyle = startCrossed ? 'rgba(0,255,136,0.5)' : '#00FF88';
-    ctx.lineWidth = 4; ctx.setLineDash([10, 6]); ctx.stroke();
+    ctx.lineWidth = 6; ctx.setLineDash([10, 6]); ctx.stroke();
     
-    if (isMirrored) {
-      ctx.scale(-1, 1);
-      ctx.fillStyle = '#00FF88'; ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('START', -(startLineX - 8), 24);
-    } else {
-      ctx.fillStyle = '#00FF88'; ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('START', startLineX + 8, 24);
-    }
+    // Label
+    ctx.restore();
+    ctx.save();
+    if (isMirrored) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    const drawX = isMirrored ? (W - startLineX) : startLineX;
+    ctx.fillStyle = '#00FF88'; ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('START', drawX + 10, 40);
     ctx.restore();
   }
 
@@ -372,16 +384,15 @@ async function loop(video, canvas) {
     ctx.save();
     ctx.beginPath(); ctx.moveTo(finishLineX, 0); ctx.lineTo(finishLineX, H);
     ctx.strokeStyle = finishCrossed ? 'rgba(255,40,40,0.5)' : '#FF4444';
-    ctx.lineWidth = 4; ctx.setLineDash([10, 6]); ctx.stroke();
+    ctx.lineWidth = 6; ctx.setLineDash([10, 6]); ctx.stroke();
     
-    if (isMirrored) {
-      ctx.scale(-1, 1);
-      ctx.fillStyle = '#FF4444'; ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('FINISH', -(finishLineX - 8), 24);
-    } else {
-      ctx.fillStyle = '#FF4444'; ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('FINISH', finishLineX + 8, 24);
-    }
+    // Label
+    ctx.restore();
+    ctx.save();
+    if (isMirrored) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    const drawX = isMirrored ? (W - finishLineX) : finishLineX;
+    ctx.fillStyle = '#FF4444'; ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('FINISH', drawX + 10, 40);
     ctx.restore();
   }
 
@@ -418,22 +429,22 @@ async function loop(video, canvas) {
     if (chestX !== null) {
       // Highlight the chest trigger point specifically
       const chestY = (kpMap['left_shoulder'].y + kpMap['right_shoulder'].y) / 2;
-      ctx.beginPath(); ctx.arc(chestX, chestY, 12, 0, Math.PI * 2);
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.beginPath(); ctx.arc(chestX, chestY, 4, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(chestX, chestY, 15, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
+      ctx.beginPath(); ctx.arc(chestX, chestY, 6, 0, Math.PI * 2);
       ctx.fillStyle = '#FFD93D'; ctx.fill();
     }
   }
 
-  ctx.restore();
+  ctx.restore(); // Final restore of mirroring transform
 
   if (startCrossed && !finishCrossed) {
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(10, H - 40, 140, 32);
-    ctx.fillStyle = '#1D9E75'; ctx.font = 'bold 18px monospace';
-    ctx.fillText('⏱ ' + elapsed + 's', 20, H - 18);
+    ctx.fillRect(10, H - 50, 160, 40);
+    ctx.fillStyle = '#1D9E75'; ctx.font = 'bold 24px monospace';
+    ctx.fillText('⏱ ' + elapsed + 's', 20, H - 22);
     ctx.restore();
   }
 
@@ -455,6 +466,10 @@ window.addEventListener('load', () => {
   };
 
   window.addEventListener('resize', updateCanvasDimensions);
+  window.addEventListener('orientationchange', () => {
+    // Small delay to allow browser to update dimensions
+    setTimeout(updateCanvasDimensions, 200);
+  });
   window.addEventListener('unload', () => { if (stream) stream.getTracks().forEach(t => t.stop()); });
 });
 </script>
